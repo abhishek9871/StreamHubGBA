@@ -125,7 +125,7 @@ const TVDetail: React.FC = () => {
       </div>
 
       {/* Details Section */}
-      <div className="container mx-auto px-4 pt-32 pb-8 md:py-16">
+      <div className="container mx-auto px-4 pt-12 pb-8 md:py-16">
         <div className="flex flex-col md:flex-row gap-8">
            <div className="w-full md:w-2/3">
               <h2 className="text-2xl font-bold font-heading mb-4">Overview</h2>

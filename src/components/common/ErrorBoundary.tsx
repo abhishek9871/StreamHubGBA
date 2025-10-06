@@ -1,7 +1,6 @@
-// FIX: Switched to a default import for React to align with the project's convention.
-// The namespace import (`import * as React`) was causing a type resolution issue where
-// the component class did not correctly inherit properties like `props` from React.Component.
-import React from 'react';
+// FIX: Switched to a namespace import for React to resolve an issue where component
+// properties were not being correctly inherited, causing 'this.props' to be unrecognized.
+import * as React from 'react';
 import { FaExclamationTriangle } from 'react-icons/fa';
 
 interface Props {
