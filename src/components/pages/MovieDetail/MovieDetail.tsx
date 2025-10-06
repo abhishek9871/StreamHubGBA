@@ -71,7 +71,7 @@ const MovieDetail: React.FC = () => {
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-bg-primary via-bg-primary/80 to-transparent"></div>
         <div className="relative z-10 container mx-auto px-4 h-full flex flex-col md:flex-row items-end pb-8 gap-8">
-          <div className="w-48 md:w-64 flex-shrink-0 -mb-16 md:mb-0">
+          <div className="w-48 md:w-64 flex-shrink-0 transform translate-y-16 mb-16 md:transform-none md:translate-y-0 md:mb-0">
              {movie.poster_path && (
                 <img
                     src={`${TMDB_IMAGE_BASE_URL}/w500${movie.poster_path}`}
@@ -99,7 +99,7 @@ const MovieDetail: React.FC = () => {
       </div>
 
       {/* Details Section */}
-      <div className="container mx-auto px-4 py-8 md:py-16">
+      <div className="container mx-auto px-4 pt-32 pb-8 md:py-16">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           <div className="md:col-span-2">
             <h2 className="text-2xl font-bold font-heading mb-4">Overview</h2>

@@ -1,4 +1,5 @@
-// FIX: Changed to namespace import to resolve type issue with this.props.
+// FIX: Changed to a namespace import to ensure React.Component is correctly resolved by TypeScript,
+// which fixes the error about 'props' not existing on the class instance.
 import * as React from 'react';
 import { FaExclamationTriangle } from 'react-icons/fa';
 
