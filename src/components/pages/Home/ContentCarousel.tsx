@@ -32,10 +32,10 @@ const ContentCarousel: React.FC<ContentCarouselProps> = ({ title, items, loading
         {Icon && <Icon className="text-accent-primary text-2xl" />}
         <h2 className="text-2xl font-bold font-heading">{title}</h2>
       </div>
-      <div className="relative group">
+      <div className="relative">
         <div 
           ref={scrollContainerRef}
-          className="flex overflow-x-auto space-x-4 pb-4 -mx-4 px-4 scrollbar-hide"
+          className="flex overflow-x-auto space-x-4 pb-4 -mx-4 px-4 scrollbar-hide peer"
         >
           {loading ? (
             Array.from({ length: 10 }).map((_, index) => <SkeletonCard key={index} />)
@@ -51,14 +51,14 @@ const ContentCarousel: React.FC<ContentCarouselProps> = ({ title, items, loading
             <>
                 <button
                     onClick={() => scroll('left')}
-                    className="absolute top-1/2 left-0 -translate-y-1/2 z-20 bg-black/60 hover:bg-black/80 text-white p-3 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300 hidden md:block"
+                    className="absolute top-1/2 left-0 -translate-y-1/2 z-20 bg-black/60 hover:bg-black/80 text-white p-3 rounded-full opacity-0 peer-hover:opacity-100 hover:opacity-100 transition-opacity duration-300 hidden md:block"
                     aria-label="Scroll left"
                 >
                     <FaChevronLeft size={20} />
                 </button>
                 <button
                     onClick={() => scroll('right')}
-                    className="absolute top-1/2 right-0 -translate-y-1/2 z-20 bg-black/60 hover:bg-black/80 text-white p-3 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300 hidden md:block"
+                    className="absolute top-1/2 right-0 -translate-y-1/2 z-20 bg-black/60 hover:bg-black/80 text-white p-3 rounded-full opacity-0 peer-hover:opacity-100 hover:opacity-100 transition-opacity duration-300 hidden md:block"
                     aria-label="Scroll right"
                 >
                     <FaChevronRight size={20} />

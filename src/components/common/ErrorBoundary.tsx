@@ -1,8 +1,9 @@
-import React, { ErrorInfo, ReactNode } from 'react';
+// FIX: Changed to namespace import to resolve type issue with this.props.
+import * as React from 'react';
 import { FaExclamationTriangle } from 'react-icons/fa';
 
 interface Props {
-  children: ReactNode;
+  children: React.ReactNode;
 }
 
 interface State {
@@ -10,7 +11,6 @@ interface State {
   error?: Error;
 }
 
-// FIX: Explicitly use React.Component to avoid potential naming conflicts or resolver issues.
 class ErrorBoundary extends React.Component<Props, State> {
   public state: State = {
     hasError: false,
@@ -20,7 +20,7 @@ class ErrorBoundary extends React.Component<Props, State> {
     return { hasError: true, error };
   }
 
-  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+  public componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error("Uncaught error:", error, errorInfo);
   }
 
