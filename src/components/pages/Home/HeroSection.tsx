@@ -76,7 +76,7 @@ const HeroSection: React.FC<HeroSectionProps> = ({ items }) => {
             </div>
         </div>
       </div>
-      <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-20 flex gap-2">
+      <div className="absolute bottom-16 md:bottom-28 left-1/2 -translate-x-1/2 z-20 flex gap-2">
         {items.map((_, index) => (
           <button
             key={index}
