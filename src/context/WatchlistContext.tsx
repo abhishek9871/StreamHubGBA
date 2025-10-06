@@ -2,6 +2,7 @@ import React, { createContext, useContext, ReactNode, useCallback, useMemo } fro
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import type { ContentItem } from '../types';
 import { toast } from 'react-toastify';
+import { storageService } from '../services/storage';
 
 interface WatchlistContextType {
   watchlist: ContentItem[];
@@ -38,9 +39,11 @@ export const WatchlistProvider: React.FC<{ children: ReactNode }> = ({ children 
   }, [watchlist]);
 
   const clearWatchlist = useCallback(() => {
-    if (watchlist.length > 0) {
+    const count = watchlist.length;
+    if (count > 0) {
       setWatchlist([]);
-      toast.success('Your watchlist has been cleared.');
+      storageService.removeItem('watchlist');
+      toast.success(`Cleared ${count} item${count > 1 ? 's' : ''} from your watchlist.`);
     } else {
       toast.info('Your watchlist is already empty.');
     }
