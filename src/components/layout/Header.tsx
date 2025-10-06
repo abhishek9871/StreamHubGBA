@@ -30,6 +30,7 @@ const Header: React.FC = () => {
             <NavLink to="/" className={navLinkClass}>Home</NavLink>
             <NavLink to="/search" className={navLinkClass}>Search</NavLink>
             <NavLink to="/watchlist" className={navLinkClass}>Watchlist</NavLink>
+            <NavLink to="/settings" className={navLinkClass}>Settings</NavLink>
           </nav>
         </div>
         

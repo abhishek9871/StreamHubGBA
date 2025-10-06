@@ -26,6 +26,7 @@ const SearchPage: React.FC = () => {
   const [query, setQuery] = useState(searchParams.get('q') || '');
   const [results, setResults] = useState<ContentItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [filter, setFilter] = useState<'all' | 'movie' | 'tv'>('all');
   
   const debouncedQuery = useDebounce(query, 500);
 
@@ -64,15 +65,33 @@ const SearchPage: React.FC = () => {
     setQuery(e.target.value);
   }
 
+  const filteredResults = useMemo(() => {
+    if (filter === 'all') return results;
+    return results.filter(item => item.media_type === filter);
+  }, [results, filter]);
+
   const resultTitle = useMemo(() => {
     if (loading) return `Searching for "${debouncedQuery}"...`;
-    if (debouncedQuery && results.length > 0) return `Results for "${debouncedQuery}"`;
-    if (debouncedQuery && !loading && results.length === 0) return `No results found for "${debouncedQuery}"`;
+    if (debouncedQuery && filteredResults.length > 0) return `Results for "${debouncedQuery}"`;
+    if (debouncedQuery && !loading && filteredResults.length === 0) return `No results found for "${debouncedQuery}"`;
     return 'Find your next favorite movie or TV show';
-  }, [debouncedQuery, results, loading]);
+  }, [debouncedQuery, filteredResults, loading]);
+
+  const FilterButton: React.FC<{ type: 'all' | 'movie' | 'tv'; label: string }> = ({ type, label }) => (
+    <button
+      onClick={() => setFilter(type)}
+      className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
+        filter === type
+          ? 'bg-accent-primary text-white'
+          : 'bg-surface text-text-secondary hover:bg-surface-hover'
+      }`}
+    >
+      {label}
+    </button>
+  );
 
   return (
-    <div className="min-h-screen container mx-auto px-4 py-8">
+    <div className="min-h-screen container mx-auto px-4 py-8 pt-24">
       <div className="mb-8">
         <h1 className="text-4xl font-bold font-heading mb-4">Search</h1>
         <div className="relative">
@@ -88,16 +107,25 @@ const SearchPage: React.FC = () => {
         </div>
       </div>
       
-      <h2 className="text-xl font-semibold mb-6">{resultTitle}</h2>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+        <h2 className="text-xl font-semibold">{resultTitle}</h2>
+        {results.length > 0 && (
+          <div className="flex items-center gap-2">
+            <FilterButton type="all" label="All" />
+            <FilterButton type="movie" label="Movies" />
+            <FilterButton type="tv" label="TV Shows" />
+          </div>
+        )}
+      </div>
 
       {loading ? (
         <div className="flex justify-center items-center h-64">
            <Loader />
         </div>
       ) : (
-         results.length > 0 ? (
+         filteredResults.length > 0 ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                {results.map(item => (
+                {filteredResults.map(item => (
                     item.poster_path ? <ContentCard key={`${item.id}-${item.media_type}`} item={item} /> : null
                 ))}
             </div>

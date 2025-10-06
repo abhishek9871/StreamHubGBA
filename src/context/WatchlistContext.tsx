@@ -9,6 +9,7 @@ interface WatchlistContextType {
   addToWatchlist: (item: ContentItem) => void;
   removeFromWatchlist: (id: number) => void;
   isInWatchlist: (id: number) => boolean;
+  clearWatchlist: () => void;
 }
 
 const WatchlistContext = createContext<WatchlistContextType | undefined>(undefined);
@@ -40,8 +41,13 @@ export const WatchlistProvider: React.FC<{ children: ReactNode }> = ({ children 
     return watchlist.some(item => item.id === id);
   };
 
+  const clearWatchlist = () => {
+    setWatchlist([]);
+    toast.success('Your watchlist has been cleared.');
+  };
+
   return (
-    <WatchlistContext.Provider value={{ watchlist, addToWatchlist, removeFromWatchlist, isInWatchlist }}>
+    <WatchlistContext.Provider value={{ watchlist, addToWatchlist, removeFromWatchlist, isInWatchlist, clearWatchlist }}>
       {children}
     </WatchlistContext.Provider>
   );

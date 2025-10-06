@@ -13,6 +13,7 @@ interface WatchedEpisodesContextType {
   watchedEpisodes: WatchedEpisodes;
   isEpisodeWatched: (tvId: string, season: number, episode: number) => boolean;
   toggleEpisodeWatched: (tvId: string, season: number, episode: number) => void;
+  clearWatchedHistory: () => void;
 }
 
 const WatchedEpisodesContext = createContext<WatchedEpisodesContextType | undefined>(undefined);
@@ -48,9 +49,14 @@ export const WatchedEpisodesProvider: React.FC<{ children: ReactNode }> = ({ chi
       return newWatched;
     });
   };
+  
+  const clearWatchedHistory = () => {
+    setWatchedEpisodes({});
+    toast.success('Your watch history has been cleared.');
+  };
 
   return (
-    <WatchedEpisodesContext.Provider value={{ watchedEpisodes, isEpisodeWatched, toggleEpisodeWatched }}>
+    <WatchedEpisodesContext.Provider value={{ watchedEpisodes, isEpisodeWatched, toggleEpisodeWatched, clearWatchedHistory }}>
       {children}
     </WatchedEpisodesContext.Provider>
   );
