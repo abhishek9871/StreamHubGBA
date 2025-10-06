@@ -1,6 +1,7 @@
-// FIX: Changed to a namespace import to ensure React.Component is correctly resolved by TypeScript,
-// which fixes the error about 'props' not existing on the class instance.
-import * as React from 'react';
+// FIX: Switched to a default import for React to align with the project's convention.
+// The namespace import (`import * as React`) was causing a type resolution issue where
+// the component class did not correctly inherit properties like `props` from React.Component.
+import React from 'react';
 import { FaExclamationTriangle } from 'react-icons/fa';
 
 interface Props {

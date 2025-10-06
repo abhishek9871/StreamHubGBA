@@ -87,7 +87,7 @@ const TVDetail: React.FC = () => {
   return (
     <div className="min-h-screen bg-bg-primary text-text-primary">
       {/* Hero Section */}
-      <div className="relative h-[50vh] md:h-[70vh]">
+      <div className="relative min-h-[50vh] md:min-h-[70vh]">
         {show.backdrop_path && (
             <img
             src={`${TMDB_IMAGE_BASE_URL}/original${show.backdrop_path}`}
