@@ -1,0 +1,5 @@
+{
+  "name": "SteamHub",
+  "description": "A modern, bug-free streaming web application that aggregates movie and TV show content using TMDB API for metadata and vidsrc.cc for streaming.",
+  "requestFramePermissions": []
+}

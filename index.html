@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SteamHub</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/react-toastify@10.0.5/dist/ReactToastify.min.css" />
+    <style>
+      /* Custom scrollbar styles to match the theme */
+      .scrollbar-thin {
+        scrollbar-width: thin;
+        scrollbar-color: #242938 #1A1F2E; /* thumb track */
+      }
+      .scrollbar-thin::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      .scrollbar-thin::-webkit-scrollbar-track {
+        background: #1A1F2E;
+        border-radius: 4px;
+      }
+      .scrollbar-thin::-webkit-scrollbar-thumb {
+        background-color: #242938;
+        border-radius: 4px;
+        border: 2px solid #1A1F2E;
+      }
+    </style>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              'bg-primary': '#0A0E14',
+              'bg-secondary': '#141821',
+              'surface': '#1A1F2E',
+              'surface-hover': '#242938',
+              'accent-primary': '#E50914',
+              'accent-secondary': '#00A8E8',
+              'text-primary': '#FFFFFF',
+              'text-secondary': '#A0AEC0',
+              'text-muted': '#718096',
+              'success': '#10B981',
+              'error': '#EF4444',
+              'warning': '#F59E0B',
+            },
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+              heading: ['Poppins', 'sans-serif'],
+            },
+            aspectRatio: {
+              'video': '16 / 9',
+            },
+          }
+        }
+      }
+    </script>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.2.0?dev",
+    "react/jsx-runtime": "https://esm.sh/react@18.2.0/jsx-runtime?dev",
+    "react/": "https://esm.sh/react@18.2.0/?dev",
+    "react-dom": "https://esm.sh/react-dom@18.2.0?dev",
+    "react-dom/": "https://esm.sh/react-dom@18.2.0/?dev",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client?dev",
+    "react-router-dom": "https://esm.sh/react-router-dom@6.23.1?dev&deps=react@18.2.0",
+    "react-router": "https://esm.sh/react-router@6.23.1?dev&deps=react@18.2.0",
+    "axios": "https://esm.sh/axios@1.7.2",
+    "react-toastify": "https://esm.sh/react-toastify@10.0.5?dev&deps=react@18.2.0",
+    "react-toastify/": "https://esm.sh/react-toastify@10.0.5/?dev&deps=react@18.2.0",
+    "react-icons/fa": "https://esm.sh/react-icons@5.2.1/fa?dev&deps=react@18.2.0",
+    "react-icons/": "https://aistudiocdn.com/react-icons@^5.5.0/"
+  }
+}
+</script>
+</head>
+<body class="bg-bg-primary text-text-primary">
+    <div id="root"></div>
+</body>
+</html>
