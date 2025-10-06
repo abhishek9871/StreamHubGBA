@@ -1,7 +1,7 @@
 import React from 'react';
 import { HashRouter, Routes, Route } from 'react-router-dom';
 import AppLayout from './components/layout/AppLayout';
-import HomePage from './components/pages/HomePage';
+import Home from './components/pages/Home/Home';
 import DetailPage from './components/pages/DetailPage';
 import Player from './components/pages/PlayerPage';
 import SearchPage from './components/pages/SearchPage';
@@ -14,7 +14,7 @@ const App: React.FC = () => {
       <HashRouter>
         <AppLayout>
           <Routes>
-            <Route path="/" element={<HomePage />} />
+            <Route path="/" element={<Home />} />
             <Route path="/search" element={<SearchPage />} />
             <Route path="/watchlist" element={<WatchlistPage />} />
             <Route path="/:type/:id" element={<DetailPage />} />

@@ -22,6 +22,9 @@ export const tmdbService = {
   getTrending: (mediaType: 'movie' | 'tv', timeWindow: 'day' | 'week' = 'week'): Promise<PaginatedResponse<ContentItem>> => {
     return apiClient.get(`/trending/${mediaType}/${timeWindow}`);
   },
+  getTrendingAll: (timeWindow: 'day' | 'week' = 'week'): Promise<PaginatedResponse<ContentItem>> => {
+    return apiClient.get(`/trending/all/${timeWindow}`);
+  },
   getPopularMovies: (): Promise<PaginatedResponse<Movie>> => {
     return apiClient.get('/movie/popular');
   },
