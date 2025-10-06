@@ -26,10 +26,23 @@ export interface TVShow {
   vote_average: number;
 }
 
+export interface CastMember {
+    id: number;
+    name: string;
+    character: string;
+    profile_path: string | null;
+}
+
+export interface Credits {
+    cast: CastMember[];
+}
+
 export interface MovieDetails extends Movie {
   genres: { id: number; name: string }[];
   runtime: number;
   tagline: string;
+  credits: Credits;
+  similar: PaginatedResponse<Movie>;
 }
 
 export interface TVShowDetails extends TVShow {
@@ -38,6 +51,8 @@ export interface TVShowDetails extends TVShow {
   number_of_episodes: number;
   seasons: Season[];
   episode_run_time: number[];
+  credits: Credits;
+  similar: PaginatedResponse<TVShow>;
 }
 
 export interface Season {

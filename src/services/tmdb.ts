@@ -38,10 +38,10 @@ export const tmdbService = {
     return apiClient.get('/tv/top_rated');
   },
   getMovieDetails: (id: string): Promise<MovieDetails> => {
-    return apiClient.get(`/movie/${id}`);
+    return apiClient.get(`/movie/${id}`, { params: { append_to_response: 'credits,similar' } });
   },
   getTVShowDetails: (id: string): Promise<TVShowDetails> => {
-    return apiClient.get(`/tv/${id}`);
+    return apiClient.get(`/tv/${id}`, { params: { append_to_response: 'credits,similar' } });
   },
   getSeasonDetails: (tvId: string, seasonNumber: number): Promise<SeasonDetails> => {
     return apiClient.get(`/tv/${tvId}/season/${seasonNumber}`);
