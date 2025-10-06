@@ -1,7 +1,7 @@
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './App';
+import App from './src/App';
 import { ToastContainer } from 'react-toastify';
 
 
@@ -20,6 +20,7 @@ root.render(
         autoClose={3000}
         hideProgressBar={false}
         newestOnTop={false}
+
         closeOnClick
         rtl={false}
         pauseOnFocusLoss

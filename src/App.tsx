@@ -1,12 +1,12 @@
 import React from 'react';
 import { HashRouter, Routes, Route } from 'react-router-dom';
-import AppLayout from './src/components/layout/AppLayout';
-import HomePage from './src/components/pages/HomePage';
-import DetailPage from './src/components/pages/DetailPage';
-import PlayerPage from './src/components/pages/PlayerPage';
-import SearchPage from './src/components/pages/SearchPage';
-import WatchlistPage from './src/components/pages/WatchlistPage';
-import { WatchlistProvider } from './src/context/WatchlistContext';
+import AppLayout from './components/layout/AppLayout';
+import HomePage from './components/pages/HomePage';
+import DetailPage from './components/pages/DetailPage';
+import PlayerPage from './components/pages/PlayerPage';
+import SearchPage from './components/pages/SearchPage';
+import WatchlistPage from './components/pages/WatchlistPage';
+import { WatchlistProvider } from './context/WatchlistContext';
 
 const App: React.FC = () => {
   return (
