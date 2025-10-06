@@ -1,5 +1,4 @@
-
-import React, { createContext, useContext, ReactNode } from 'react';
+import React, { createContext, useContext, ReactNode, useCallback, useMemo } from 'react';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { toast } from 'react-toastify';
 
@@ -21,42 +20,54 @@ const WatchedEpisodesContext = createContext<WatchedEpisodesContextType | undefi
 export const WatchedEpisodesProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [watchedEpisodes, setWatchedEpisodes] = useLocalStorage<WatchedEpisodes>('watchedEpisodes', {});
 
-  const isEpisodeWatched = (tvId: string, season: number, episode: number): boolean => {
+  const isEpisodeWatched = useCallback((tvId: string, season: number, episode: number): boolean => {
     return watchedEpisodes[tvId]?.[season]?.includes(episode) ?? false;
-  };
+  }, [watchedEpisodes]);
 
-  const toggleEpisodeWatched = (tvId: string, season: number, episode: number) => {
+  const toggleEpisodeWatched = useCallback((tvId: string, season: number, episode: number) => {
+    const alreadyWatched = isEpisodeWatched(tvId, season, episode);
+
     setWatchedEpisodes(prev => {
+      // Deep copy to avoid mutation
       const newWatched = JSON.parse(JSON.stringify(prev));
-      if (!newWatched[tvId]) {
-        newWatched[tvId] = {};
-      }
-      if (!newWatched[tvId][season]) {
-        newWatched[tvId][season] = [];
-      }
+      const seasonEpisodes = newWatched[tvId]?.[season] || [];
 
-      const seasonEpisodes = newWatched[tvId][season];
-      const episodeIndex = seasonEpisodes.indexOf(episode);
-
-      if (episodeIndex > -1) {
-        seasonEpisodes.splice(episodeIndex, 1);
-        toast.info(`Episode marked as unwatched.`);
+      if (alreadyWatched) {
+        // Remove episode
+        newWatched[tvId][season] = seasonEpisodes.filter(e => e !== episode);
       } else {
-        seasonEpisodes.push(episode);
-        toast.success(`Episode marked as watched!`);
+        // Add episode
+        if (!newWatched[tvId]) newWatched[tvId] = {};
+        newWatched[tvId][season] = [...seasonEpisodes, episode].sort((a,b) => a - b);
       }
-
       return newWatched;
     });
-  };
+
+    if (alreadyWatched) {
+      toast.info(`Episode marked as unwatched.`);
+    } else {
+      toast.success(`Episode marked as watched!`);
+    }
+  }, [watchedEpisodes, setWatchedEpisodes, isEpisodeWatched]);
   
-  const clearWatchedHistory = () => {
-    setWatchedEpisodes({});
-    toast.success('Your watch history has been cleared.');
-  };
+  const clearWatchedHistory = useCallback(() => {
+    if (Object.keys(watchedEpisodes).length > 0) {
+      setWatchedEpisodes({});
+      toast.success('Your watch history has been cleared.');
+    } else {
+      toast.info('Your watch history is already empty.');
+    }
+  }, [watchedEpisodes, setWatchedEpisodes]);
+
+  const value = useMemo(() => ({
+    watchedEpisodes,
+    isEpisodeWatched,
+    toggleEpisodeWatched,
+    clearWatchedHistory
+  }), [watchedEpisodes, isEpisodeWatched, toggleEpisodeWatched, clearWatchedHistory]);
 
   return (
-    <WatchedEpisodesContext.Provider value={{ watchedEpisodes, isEpisodeWatched, toggleEpisodeWatched, clearWatchedHistory }}>
+    <WatchedEpisodesContext.Provider value={value}>
       {children}
     </WatchedEpisodesContext.Provider>
   );

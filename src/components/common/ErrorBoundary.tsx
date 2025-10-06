@@ -1,5 +1,4 @@
-// FIX: Changed import to use named imports from 'react' to properly type the class component.
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import React, { ErrorInfo, ReactNode } from 'react';
 import { FaExclamationTriangle } from 'react-icons/fa';
 
 interface Props {
@@ -11,7 +10,8 @@ interface State {
   error?: Error;
 }
 
-class ErrorBoundary extends Component<Props, State> {
+// FIX: To resolve the 'Property 'props' does not exist' error, the ErrorBoundary class must extend React.Component. This makes it a valid React component and gives it access to `this.props`.
+class ErrorBoundary extends React.Component<Props, State> {
   public state: State = {
     hasError: false,
   };

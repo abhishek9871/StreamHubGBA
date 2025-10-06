@@ -6,8 +6,11 @@ import Button from '../../common/Button';
 import { FaTrash, FaInfoCircle } from 'react-icons/fa';
 
 const SettingsPage: React.FC = () => {
-  const { clearWatchlist } = useWatchlist();
-  const { clearWatchedHistory } = useWatchedEpisodes();
+  const { watchlist, clearWatchlist } = useWatchlist();
+  const { watchedEpisodes, clearWatchedHistory } = useWatchedEpisodes();
+
+  const isWatchlistEmpty = watchlist.length === 0;
+  const isHistoryEmpty = Object.keys(watchedEpisodes).length === 0;
 
   const handleClearWatchlist = () => {
     if (window.confirm('Are you sure you want to clear your entire watchlist? This action cannot be undone.')) {
@@ -35,7 +38,7 @@ const SettingsPage: React.FC = () => {
                 <h3 className="font-semibold text-text-primary">Clear Watchlist</h3>
                 <p className="text-sm text-text-secondary">Permanently delete all items from your watchlist.</p>
               </div>
-              <Button variant="outline" onClick={handleClearWatchlist} icon={FaTrash}>
+              <Button variant="outline" onClick={handleClearWatchlist} icon={FaTrash} disabled={isWatchlistEmpty}>
                 Clear
               </Button>
             </div>
@@ -44,7 +47,7 @@ const SettingsPage: React.FC = () => {
                 <h3 className="font-semibold text-text-primary">Clear Watch History</h3>
                 <p className="text-sm text-text-secondary">Permanently delete all of your watched episode history.</p>
               </div>
-              <Button variant="outline" onClick={handleClearHistory} icon={FaTrash}>
+              <Button variant="outline" onClick={handleClearHistory} icon={FaTrash} disabled={isHistoryEmpty}>
                 Clear
               </Button>
             </div>

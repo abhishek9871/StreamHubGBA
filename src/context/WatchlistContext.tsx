@@ -1,5 +1,4 @@
-
-import React, { createContext, useContext, ReactNode } from 'react';
+import React, { createContext, useContext, ReactNode, useCallback, useMemo } from 'react';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import type { ContentItem } from '../types';
 import { toast } from 'react-toastify';
@@ -17,37 +16,46 @@ const WatchlistContext = createContext<WatchlistContextType | undefined>(undefin
 export const WatchlistProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [watchlist, setWatchlist] = useLocalStorage<ContentItem[]>('watchlist', []);
 
-  const addToWatchlist = (item: ContentItem) => {
+  const addToWatchlist = useCallback((item: ContentItem) => {
     if (!watchlist.find(i => i.id === item.id)) {
-      setWatchlist([...watchlist, item]);
-      // FIX: Use type guard to safely access 'title' or 'name' on the ContentItem union type.
+      setWatchlist(prev => [...prev, item]);
       toast.success(`${'title' in item ? item.title : item.name} added to watchlist!`);
     } else {
-      // FIX: Use type guard to safely access 'title' or 'name' on the ContentItem union type.
       toast.info(`${'title' in item ? item.title : item.name} is already in your watchlist.`);
     }
-  };
+  }, [watchlist, setWatchlist]);
 
-  const removeFromWatchlist = (id: number) => {
+  const removeFromWatchlist = useCallback((id: number) => {
     const item = watchlist.find(i => i.id === id);
-    setWatchlist(watchlist.filter(item => item.id !== id));
-     if(item) {
-        // FIX: Use type guard to safely access 'title' or 'name' on the ContentItem union type.
-        toast.error(`${'title' in item ? item.title : item.name} removed from watchlist.`);
-     }
-  };
+    if (item) {
+      setWatchlist(prev => prev.filter(i => i.id !== id));
+      toast.error(`${'title' in item ? item.title : item.name} removed from watchlist.`);
+    }
+  }, [watchlist, setWatchlist]);
 
-  const isInWatchlist = (id: number): boolean => {
+  const isInWatchlist = useCallback((id: number): boolean => {
     return watchlist.some(item => item.id === id);
-  };
+  }, [watchlist]);
 
-  const clearWatchlist = () => {
-    setWatchlist([]);
-    toast.success('Your watchlist has been cleared.');
-  };
+  const clearWatchlist = useCallback(() => {
+    if (watchlist.length > 0) {
+      setWatchlist([]);
+      toast.success('Your watchlist has been cleared.');
+    } else {
+      toast.info('Your watchlist is already empty.');
+    }
+  }, [watchlist, setWatchlist]);
+
+  const value = useMemo(() => ({
+    watchlist,
+    addToWatchlist,
+    removeFromWatchlist,
+    isInWatchlist,
+    clearWatchlist
+  }), [watchlist, addToWatchlist, removeFromWatchlist, isInWatchlist, clearWatchlist]);
 
   return (
-    <WatchlistContext.Provider value={{ watchlist, addToWatchlist, removeFromWatchlist, isInWatchlist, clearWatchlist }}>
+    <WatchlistContext.Provider value={value}>
       {children}
     </WatchlistContext.Provider>
   );
