@@ -1,9 +1,11 @@
-import { useState, useEffect, Dispatch, SetStateAction } from 'react';
+import { useState, useCallback, useEffect, Dispatch, SetStateAction } from 'react';
 import { storageService } from '../services/storage';
 
 /**
  * A custom hook that synchronizes a state with localStorage.
  * It behaves like `useState`, but persists the value to localStorage.
+ * This version ensures localStorage is updated synchronously with the state update
+ * to prevent race conditions.
  *
  * @param key The key to use in localStorage.
  * @param initialValue The initial value to use if nothing is in localStorage.
@@ -13,17 +15,28 @@ export function useLocalStorage<T>(
   key: string,
   initialValue: T
 ): [T, Dispatch<SetStateAction<T>>] {
+  // Get initial value from localStorage or use the initialValue provided.
   const [storedValue, setStoredValue] = useState<T>(() => {
-    // Read from localStorage on initial render
     return storageService.getItem(key, initialValue);
   });
 
-  // Effect to update localStorage when the state changes
-  useEffect(() => {
-    storageService.setItem(key, storedValue);
-  }, [key, storedValue]);
+  // Create a stable setter function that updates both React state and localStorage.
+  const setValue: Dispatch<SetStateAction<T>> = useCallback(
+    (value) => {
+      // The updater function form of setState ensures we always have the latest state.
+      setStoredValue((prevState) => {
+        // Determine the new value, supporting both direct value and function forms.
+        const valueToStore = value instanceof Function ? value(prevState) : value;
+        // Persist to localStorage synchronously.
+        storageService.setItem(key, valueToStore);
+        // Return the new value to update React state.
+        return valueToStore;
+      });
+    },
+    [key] // The key is the only dependency, making this function stable.
+  );
 
-  // Effect to listen for changes from other tabs
+  // Effect to listen for changes from other tabs to sync state.
   useEffect(() => {
     const handleStorageChange = (event: StorageEvent) => {
       if (event.key === key) {
@@ -34,7 +47,7 @@ export function useLocalStorage<T>(
             setStoredValue(initialValue);
           }
         } else {
-          // The item was removed from storage in another tab
+          // The item was removed from storage in another tab.
           setStoredValue(initialValue);
         }
       }
@@ -45,5 +58,5 @@ export function useLocalStorage<T>(
     };
   }, [key, initialValue]);
 
-  return [storedValue, setStoredValue];
+  return [storedValue, setValue];
 }
