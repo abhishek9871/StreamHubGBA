@@ -1,10 +1,9 @@
-// FIX: Switched to a namespace import for React to resolve an issue where component
-// properties were not being correctly inherited, causing 'this.props' to be unrecognized.
-import * as React from 'react';
+// FIX: Changed import to use named imports from 'react' to properly type the class component.
+import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { FaExclamationTriangle } from 'react-icons/fa';
 
 interface Props {
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
 interface State {
@@ -12,7 +11,7 @@ interface State {
   error?: Error;
 }
 
-class ErrorBoundary extends React.Component<Props, State> {
+class ErrorBoundary extends Component<Props, State> {
   public state: State = {
     hasError: false,
   };
@@ -21,7 +20,7 @@ class ErrorBoundary extends React.Component<Props, State> {
     return { hasError: true, error };
   }
 
-  public componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error("Uncaught error:", error, errorInfo);
   }
 

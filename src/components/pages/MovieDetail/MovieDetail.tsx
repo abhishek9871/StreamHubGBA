@@ -109,8 +109,8 @@ const MovieDetail: React.FC = () => {
               <div className="mt-12">
                  <h2 className="text-2xl font-bold font-heading mb-4">Cast</h2>
                  <div className="flex overflow-x-auto space-x-4 pb-4 scrollbar-thin">
-                   {movie.credits.cast.slice(0, 15).map(person => (
-                     <CastCard key={person.id} person={person} />
+                   {movie.credits.cast.slice(0, 15).map((person, index) => (
+                     <CastCard key={`${person.id}-${index}`} person={person} />
                    ))}
                  </div>
               </div>
