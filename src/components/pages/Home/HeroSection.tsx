@@ -41,6 +41,7 @@ const HeroSection: React.FC<HeroSectionProps> = ({ items }) => {
                 src={`${TMDB_IMAGE_BASE_URL}/original${item.backdrop_path}`}
                 alt={'title' in item ? item.title : item.name}
                 className="w-full h-full object-cover"
+                loading="lazy"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-bg-primary via-bg-primary/70 to-transparent"></div>
          </div>

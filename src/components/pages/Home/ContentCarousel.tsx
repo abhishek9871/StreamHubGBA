@@ -35,9 +35,7 @@ const ContentCarousel: React.FC<ContentCarouselProps> = ({ title, items, loading
       <div className="relative group">
         <div 
           ref={scrollContainerRef}
-          className="flex overflow-x-auto space-x-4 pb-4 -mx-4 px-4 scrollbar-thin"
-          // FIX: Use camelCase for CSS properties in React style objects.
-          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+          className="flex overflow-x-auto space-x-4 pb-4 -mx-4 px-4 scrollbar-hide"
         >
           {loading ? (
             Array.from({ length: 10 }).map((_, index) => <SkeletonCard key={index} />)

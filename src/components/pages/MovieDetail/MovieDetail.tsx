@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { tmdbService } from '../../../services/tmdb';
@@ -67,6 +66,7 @@ const MovieDetail: React.FC = () => {
             src={`${TMDB_IMAGE_BASE_URL}/original${movie.backdrop_path}`}
             alt={movie.title}
             className="absolute inset-0 w-full h-full object-cover opacity-30"
+            loading="lazy"
             />
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-bg-primary via-bg-primary/80 to-transparent"></div>
@@ -77,6 +77,7 @@ const MovieDetail: React.FC = () => {
                     src={`${TMDB_IMAGE_BASE_URL}/w500${movie.poster_path}`}
                     alt={movie.title}
                     className="rounded-lg shadow-2xl"
+                    loading="lazy"
                 />
              )}
           </div>
