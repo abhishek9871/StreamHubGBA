@@ -27,7 +27,6 @@ const SettingsPage: React.FC = () => {
   return (
     <div className="min-h-screen container mx-auto px-4 py-8 pt-24">
       <h1 className="text-4xl font-bold font-heading mb-8">Settings</h1>
-
       <div className="max-w-2xl mx-auto space-y-12">
         {/* Data Management Section */}
         <section>
@@ -56,14 +55,16 @@ const SettingsPage: React.FC = () => {
 
         {/* About Section */}
         <section>
-          <h2 className="text-2xl font-semibold font-heading border-b-2 border-surface pb-2 mb-4">About SteamHub</h2>
+          <h2 className="text-2xl font-semibold font-heading border-b-2 border-surface pb-2 mb-4">About FlixNest</h2>
           <div className="bg-surface p-4 rounded-lg">
             <div className="flex items-start gap-4">
-              <FaInfoCircle className="text-accent-secondary text-2xl mt-1 flex-shrink-0" />
+              <span className="text-accent-secondary text-2xl mt-1 flex-shrink-0">
+                <FaInfoCircle size={24} />
+              </span>
               <div>
                 <h3 className="font-semibold text-text-primary">Disclaimer</h3>
                 <p className="text-sm text-text-secondary mt-2">
-                  SteamHub is a personal project and is not affiliated with TMDB or any streaming providers. All content is provided by third-party services. We do not host any content on our servers. This application is for educational and demonstration purposes only.
+                  FlixNest is a personal project and is not affiliated with TMDB or any streaming providers. All content is provided by third-party services. We do not host any content on our servers. This application is for educational and demonstration purposes only.
                 </p>
               </div>
             </div>

@@ -44,8 +44,10 @@ const Header: React.FC = () => {
           {/* Left Side: Logo & Desktop Nav */}
           <div className="flex items-center gap-6">
             <Link to="/" className="flex items-center gap-2">
-              <FaFilm className="text-accent-primary text-3xl" />
-              <h1 className="hidden sm:block text-2xl font-heading font-bold text-text-primary">SteamHub</h1>
+              <span className="text-accent-primary text-3xl">
+                <FaFilm size={30} />
+              </span>
+              <h1 className="hidden sm:block text-2xl font-heading font-bold text-text-primary">FlixNest</h1>
             </Link>
             <nav className="hidden md:flex items-center gap-6">
               <NavLink to="/" className={navLinkClass}>Home</NavLink>
@@ -90,8 +92,10 @@ const Header: React.FC = () => {
       >
         <div className="container mx-auto px-4 py-3 flex items-center justify-between">
           <Link to="/" onClick={closeMenu} className="flex items-center gap-2">
-            <FaFilm className="text-accent-primary text-3xl" />
-            <h1 className="text-2xl font-heading font-bold text-text-primary">SteamHub</h1>
+            <span className="text-accent-primary text-3xl">
+              <FaFilm size={30} />
+            </span>
+            <h1 className="text-2xl font-heading font-bold text-text-primary">FlixNest</h1>
           </Link>
           <button 
             className="text-3xl text-text-primary p-2"
