@@ -186,50 +186,6 @@ const TVDetail: React.FC = () => {
             >
               <FaTimes size={18} />
             </button>
-            
-            {/* Episode Navigation Bar - Below Player */}
-            <div className="absolute bottom-0 left-0 right-0 z-20">
-              <div className="bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-12 pb-4 px-4">
-                {/* Current Episode Info */}
-                <div className="text-center mb-3">
-                  <p className="text-white/70 text-sm">
-                    S{currentEpisode.season} E{currentEpisode.episode}
-                    {currentEpisodeData && ` • ${currentEpisodeData.name}`}
-                  </p>
-                </div>
-                
-                {/* Navigation Buttons */}
-                <div className="flex items-center justify-center gap-4">
-                  {/* Previous Episode Button */}
-                  {hasPreviousEpisode && (
-                    <button
-                      onClick={goToPreviousEpisode}
-                      className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-md text-white text-sm font-medium transition-all duration-200 backdrop-blur-sm"
-                    >
-                      <FaChevronLeft size={12} />
-                      <span className="hidden sm:inline">
-                        {prevEpisodeData ? `E${prevEpisodeData.episode_number}` : 'Previous'}
-                      </span>
-                      <span className="sm:hidden">Prev</span>
-                    </button>
-                  )}
-                  
-                  {/* Next Episode Button */}
-                  {hasNextEpisode && (
-                    <button
-                      onClick={goToNextEpisode}
-                      className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-md text-white text-sm font-medium transition-all duration-200 backdrop-blur-sm"
-                    >
-                      <span className="hidden sm:inline">
-                        {nextEpisodeData ? `E${nextEpisodeData.episode_number}` : 'Next'}
-                      </span>
-                      <span className="sm:hidden">Next</span>
-                      <FaChevronRight size={12} />
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
           </>
         ) : (
           <>
@@ -305,6 +261,46 @@ const TVDetail: React.FC = () => {
           </>
         )}
       </div>
+
+      {/* Episode Navigation Bar - Outside player, only shows when playing */}
+      {isPlaying && (hasPreviousEpisode || hasNextEpisode) && (
+        <div className="bg-bg-secondary border-b border-white/10">
+          <div className="container mx-auto px-4 md:px-8 lg:px-16 py-3">
+            <div className="flex items-center justify-between">
+              {/* Current Episode Info */}
+              <p className="text-white/70 text-sm">
+                S{currentEpisode.season} E{currentEpisode.episode}
+                {currentEpisodeData && <span className="hidden sm:inline"> • {currentEpisodeData.name}</span>}
+              </p>
+              
+              {/* Navigation Buttons */}
+              <div className="flex items-center gap-3">
+                {/* Previous Episode Button */}
+                {hasPreviousEpisode && (
+                  <button
+                    onClick={goToPreviousEpisode}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded text-white text-sm font-medium transition-all duration-200"
+                  >
+                    <FaChevronLeft size={10} />
+                    <span>E{currentEpisode.episode - 1}</span>
+                  </button>
+                )}
+                
+                {/* Next Episode Button */}
+                {hasNextEpisode && (
+                  <button
+                    onClick={goToNextEpisode}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded text-white text-sm font-medium transition-all duration-200"
+                  >
+                    <span>E{currentEpisode.episode + 1}</span>
+                    <FaChevronRight size={10} />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Content Section */}
       <div className="container mx-auto px-4 md:px-8 lg:px-16 py-8">
