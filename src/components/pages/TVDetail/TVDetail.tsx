@@ -7,7 +7,7 @@ import { useWatchlist } from '../../../context/WatchlistContext';
 import { useWatchedEpisodes } from '../../../context/WatchedEpisodesContext';
 import Loader from '../../common/Loader';
 import ContentCarousel from '../Home/ContentCarousel';
-import { FaPlay, FaPlus, FaCheck, FaStar, FaTimes, FaCheckCircle, FaChevronDown } from 'react-icons/fa';
+import { FaPlay, FaPlus, FaCheck, FaStar, FaTimes, FaCheckCircle, FaChevronDown, FaChevronLeft, FaChevronRight } from 'react-icons/fa';
 
 const TVDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -134,6 +134,33 @@ const TVDetail: React.FC = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // Episode navigation logic
+  const totalEpisodes = seasonDetails?.episodes?.length || 0;
+  const hasPreviousEpisode = currentEpisode.episode > 1;
+  const hasNextEpisode = currentEpisode.episode < totalEpisodes;
+  
+  const currentEpisodeData = seasonDetails?.episodes?.find(
+    ep => ep.episode_number === currentEpisode.episode
+  );
+  const nextEpisodeData = seasonDetails?.episodes?.find(
+    ep => ep.episode_number === currentEpisode.episode + 1
+  );
+  const prevEpisodeData = seasonDetails?.episodes?.find(
+    ep => ep.episode_number === currentEpisode.episode - 1
+  );
+
+  const goToPreviousEpisode = () => {
+    if (hasPreviousEpisode) {
+      playEpisode(currentEpisode.season, currentEpisode.episode - 1);
+    }
+  };
+
+  const goToNextEpisode = () => {
+    if (hasNextEpisode) {
+      playEpisode(currentEpisode.season, currentEpisode.episode + 1);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-bg-primary">
       {/* Netflix-style Hero Section */}
@@ -159,6 +186,50 @@ const TVDetail: React.FC = () => {
             >
               <FaTimes size={18} />
             </button>
+            
+            {/* Episode Navigation Bar - Below Player */}
+            <div className="absolute bottom-0 left-0 right-0 z-20">
+              <div className="bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-12 pb-4 px-4">
+                {/* Current Episode Info */}
+                <div className="text-center mb-3">
+                  <p className="text-white/70 text-sm">
+                    S{currentEpisode.season} E{currentEpisode.episode}
+                    {currentEpisodeData && ` • ${currentEpisodeData.name}`}
+                  </p>
+                </div>
+                
+                {/* Navigation Buttons */}
+                <div className="flex items-center justify-center gap-4">
+                  {/* Previous Episode Button */}
+                  {hasPreviousEpisode && (
+                    <button
+                      onClick={goToPreviousEpisode}
+                      className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-md text-white text-sm font-medium transition-all duration-200 backdrop-blur-sm"
+                    >
+                      <FaChevronLeft size={12} />
+                      <span className="hidden sm:inline">
+                        {prevEpisodeData ? `E${prevEpisodeData.episode_number}` : 'Previous'}
+                      </span>
+                      <span className="sm:hidden">Prev</span>
+                    </button>
+                  )}
+                  
+                  {/* Next Episode Button */}
+                  {hasNextEpisode && (
+                    <button
+                      onClick={goToNextEpisode}
+                      className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-md text-white text-sm font-medium transition-all duration-200 backdrop-blur-sm"
+                    >
+                      <span className="hidden sm:inline">
+                        {nextEpisodeData ? `E${nextEpisodeData.episode_number}` : 'Next'}
+                      </span>
+                      <span className="sm:hidden">Next</span>
+                      <FaChevronRight size={12} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
           </>
         ) : (
           <>
