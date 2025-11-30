@@ -1,12 +1,16 @@
 /**
- * Advanced Ad Blocker Utility for iframe-embedded video players
+ * Mobile-Optimized Ad Blocker for iframe-embedded video players
+ * 
+ * Key insight from research: Mobile Chrome requires explicit user gesture
+ * before popup blocking context is valid. First load doesn't count as interaction.
  * 
  * Multi-layered defense system:
- * 1. Aggressive blur/focus detection and recovery
- * 2. Visibility change monitoring
- * 3. MutationObserver to remove injected ad elements
- * 4. Window count monitoring for popup detection
- * 5. Mobile-optimized event handling
+ * 1. User gesture detection (CRITICAL for Mobile Chrome)
+ * 2. Aggressive blur/focus detection with mobile-optimized timing
+ * 3. Visibility change monitoring with bfcache support
+ * 4. MutationObserver to remove injected ad elements (optimized for mobile)
+ * 5. Window.open interception with fake window return
+ * 6. Window count monitoring for popup detection
  */
 
 interface AdBlockerConfig {
@@ -20,11 +24,22 @@ interface AdBlockerState {
   lastBlurTime: number;
   initialWindowCount: number;
   isActive: boolean;
+  userHasInteracted: boolean;
+  isMobile: boolean;
 }
 
 const defaultConfig: AdBlockerConfig = {
   enabled: true,
   aggressiveness: 'high',
+};
+
+/**
+ * Detect if running on mobile device
+ */
+const detectMobile = (): boolean => {
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+    navigator.userAgent
+  );
 };
 
 /**
@@ -39,13 +54,27 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
     lastBlurTime: 0,
     initialWindowCount: window.length,
     isActive: false,
+    userHasInteracted: false,
+    isMobile: detectMobile(),
   };
 
-  // Timing configurations based on aggressiveness
+  // Timing configurations - MOBILE uses longer intervals to save battery
   const timings = {
-    low: { debounce: 100, interval: 200, focusDelays: [50, 150] },
-    medium: { debounce: 50, interval: 100, focusDelays: [0, 20, 50, 100] },
-    high: { debounce: 10, interval: 30, focusDelays: [0, 5, 10, 20, 35, 50, 75, 100] },
+    low: { 
+      debounce: state.isMobile ? 150 : 100, 
+      interval: state.isMobile ? 300 : 200, 
+      focusDelays: [50, 150] 
+    },
+    medium: { 
+      debounce: state.isMobile ? 80 : 50, 
+      interval: state.isMobile ? 150 : 100, 
+      focusDelays: [0, 30, 60, 100] 
+    },
+    high: { 
+      debounce: state.isMobile ? 50 : 10, 
+      interval: state.isMobile ? 100 : 30, // 100ms on mobile vs 30ms on desktop
+      focusDelays: state.isMobile ? [0, 20, 50, 100, 150] : [0, 5, 10, 20, 35, 50, 75, 100] 
+    },
   };
 
   const timing = timings[mergedConfig.aggressiveness];
@@ -53,12 +82,19 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
   let focusInterval: ReturnType<typeof setInterval> | null = null;
   let windowCheckInterval: ReturnType<typeof setInterval> | null = null;
   let mutationObserver: MutationObserver | null = null;
+  let originalWindowOpen: typeof window.open | null = null;
+  let gestureListenersAttached = false;
 
   /**
    * Rapid-fire focus recovery
-   * Schedules multiple focus attempts at different intervals
+   * Only runs if user has interacted (critical for mobile)
    */
   const rapidFocusRecovery = () => {
+    // On mobile, don't try to refocus before user gesture
+    if (state.isMobile && !state.userHasInteracted) {
+      return;
+    }
+    
     // Immediate focus
     window.focus();
     
@@ -73,9 +109,46 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
   };
 
   /**
+   * Handle first user gesture - CRITICAL FOR MOBILE CHROME
+   * Mobile Chrome doesn't recognize app-mount as valid user gesture context
+   */
+  const handleFirstGesture = () => {
+    if (state.userHasInteracted) return;
+    
+    state.userHasInteracted = true;
+    console.log('[AdBlocker] First user gesture detected - full protection activated');
+    
+    // Remove gesture listeners after first interaction
+    if (gestureListenersAttached) {
+      ['touchstart', 'click', 'pointerdown', 'mousedown'].forEach(event => {
+        document.removeEventListener(event, handleFirstGesture, true);
+      });
+      gestureListenersAttached = false;
+    }
+  };
+
+  /**
+   * Setup gesture detection for mobile
+   */
+  const setupGestureDetection = () => {
+    if (gestureListenersAttached) return;
+    
+    // Use capture phase to catch gesture BEFORE other handlers
+    ['touchstart', 'click', 'pointerdown', 'mousedown'].forEach(event => {
+      document.addEventListener(event, handleFirstGesture, true);
+    });
+    gestureListenersAttached = true;
+    
+    console.log('[AdBlocker] Gesture detection active (mobile mode)');
+  };
+
+  /**
    * Handle window blur (popup likely opened)
    */
   const handleBlur = () => {
+    // On mobile, only intercept after user gesture
+    if (state.isMobile && !state.userHasInteracted) return;
+    
     const now = Date.now();
     
     // Minimal debounce to prevent infinite loops
@@ -83,7 +156,10 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
       state.lastBlurTime = now;
       state.blockedCount++;
       
-      rapidFocusRecovery();
+      // Slight delay for mobile processing
+      setTimeout(() => {
+        rapidFocusRecovery();
+      }, state.isMobile ? 50 : 0);
       
       if (mergedConfig.onAdBlocked) {
         mergedConfig.onAdBlocked();
@@ -93,30 +169,49 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
 
   /**
    * Handle visibility change (tab switched, likely to ad)
+   * Supports bfcache for mobile
    */
   const handleVisibilityChange = () => {
-    if (document.hidden) {
-      // Tab was hidden - likely switched to ad tab
-      rapidFocusRecovery();
-      state.blockedCount++;
+    if (document.visibilityState === 'hidden') {
+      console.log('[AdBlocker] Page hidden');
+    } else if (document.visibilityState === 'visible') {
+      console.log('[AdBlocker] Page visible, checking focus');
       
-      if (mergedConfig.onAdBlocked) {
-        mergedConfig.onAdBlocked();
-      }
+      // Check if popup was opened during visibility change
+      setTimeout(() => {
+        if (!document.hasFocus() && state.userHasInteracted) {
+          rapidFocusRecovery();
+          state.blockedCount++;
+          
+          if (mergedConfig.onAdBlocked) {
+            mergedConfig.onAdBlocked();
+          }
+        }
+      }, state.isMobile ? 100 : 50);
     }
   };
 
   /**
-   * Handle page hide (mobile-specific)
+   * Handle page hide - bfcache support (mobile-critical)
    */
-  const handlePageHide = () => {
+  const handlePageHide = (event: PageTransitionEvent) => {
+    if (event.persisted) {
+      console.log('[AdBlocker] Page entering bfcache');
+    }
     rapidFocusRecovery();
   };
 
   /**
-   * Handle page show (returning from ad tab)
+   * Handle page show - restore from bfcache (mobile-critical)
    */
-  const handlePageShow = () => {
+  const handlePageShow = (event: PageTransitionEvent) => {
+    if (event.persisted) {
+      console.log('[AdBlocker] Page restored from bfcache, re-initializing');
+      // Re-attach gesture listeners if needed
+      if (state.isMobile && !state.userHasInteracted) {
+        setupGestureDetection();
+      }
+    }
     // Ensure we have focus when returning
     setTimeout(() => window.focus(), 0);
   };
@@ -126,6 +221,9 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
    */
   const startFocusInterval = () => {
     focusInterval = setInterval(() => {
+      // On mobile, only check after user gesture
+      if (state.isMobile && !state.userHasInteracted) return;
+      
       if (!document.hasFocus()) {
         window.focus();
       }
@@ -157,10 +255,9 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
   };
 
   /**
-   * MutationObserver to detect and remove injected ad elements
-   * Monitors for suspicious iframes, scripts, and divs
+   * Check if element matches ad patterns
    */
-  const startMutationObserver = () => {
+  const isAdElement = (node: Element): boolean => {
     const adPatterns = [
       /ads?[_\-\.]/i,
       /popup/i,
@@ -172,28 +269,35 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
       /adservice/i,
       /advertisement/i,
       /sponsor/i,
+      /taboola/i,
+      /outbrain/i,
     ];
 
-    const isAdElement = (node: Element): boolean => {
-      // Check src attribute
-      const src = node.getAttribute('src') || '';
-      const href = node.getAttribute('href') || '';
-      const id = node.getAttribute('id') || '';
-      const className = node.getAttribute('class') || '';
-      
-      const checkString = `${src} ${href} ${id} ${className}`.toLowerCase();
-      
-      return adPatterns.some(pattern => pattern.test(checkString));
-    };
+    const src = node.getAttribute('src') || '';
+    const href = node.getAttribute('href') || '';
+    const id = node.getAttribute('id') || '';
+    const className = node.getAttribute('class') || '';
+    
+    const checkString = `${src} ${href} ${id} ${className}`.toLowerCase();
+    
+    return adPatterns.some(pattern => pattern.test(checkString));
+  };
 
+  /**
+   * MutationObserver to detect and remove injected ad elements
+   * OPTIMIZED for mobile: skip characterData monitoring
+   */
+  const startMutationObserver = () => {
     mutationObserver = new MutationObserver(mutations => {
       mutations.forEach(mutation => {
+        // Check added nodes
         mutation.addedNodes.forEach(node => {
           if (node.nodeType === Node.ELEMENT_NODE) {
             const element = node as Element;
             
             // Check if it's an ad iframe
             if (element.tagName === 'IFRAME' && isAdElement(element)) {
+              console.log('[AdBlocker] Removing ad iframe');
               element.remove();
               state.blockedCount++;
               if (mergedConfig.onAdBlocked) {
@@ -229,46 +333,87 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
             });
           }
         });
+
+        // Check attribute changes (ad attribute injection)
+        if (mutation.type === 'attributes') {
+          const attrName = mutation.attributeName;
+          if (attrName === 'onclick' || attrName === 'onload' || attrName === 'onerror') {
+            (mutation.target as Element).removeAttribute(attrName);
+          }
+        }
       });
     });
 
+    // MOBILE OPTIMIZATION: Don't monitor characterData (text nodes)
     mutationObserver.observe(document.body, {
       childList: true,
       subtree: true,
+      attributes: true,
+      attributeFilter: ['onclick', 'onload', 'onerror', 'src'],
+      attributeOldValue: false,
+      characterData: false, // Important: Don't monitor text nodes on mobile
     });
   };
 
   /**
    * Override window.open in parent context
-   * Won't affect iframe but catches any parent-level popups
+   * Returns fake window object to prevent errors in ad scripts
    */
-  let originalWindowOpen: typeof window.open | null = null;
-  
   const overrideWindowOpen = () => {
     originalWindowOpen = window.open;
     
     window.open = function(url?: string | URL, target?: string, features?: string) {
-      // Block if URL matches ad patterns
       const urlString = url?.toString() || '';
+      
+      // Block empty popups
+      if (!urlString) {
+        console.log('[AdBlocker] Blocked empty popup');
+        state.blockedCount++;
+        return createFakeWindow();
+      }
+      
+      // Block if URL matches ad patterns
       const adUrlPatterns = [
         /ads?\./i,
         /popup/i,
         /click\./i,
         /track/i,
         /redirect/i,
+        /doubleclick/i,
+        /googlesyndication/i,
+        /amazon-adsystem/i,
+        /taboola/i,
+        /outbrain/i,
       ];
       
       if (adUrlPatterns.some(pattern => pattern.test(urlString))) {
+        console.log('[AdBlocker] Blocked popup:', urlString.substring(0, 50));
         state.blockedCount++;
         if (mergedConfig.onAdBlocked) {
           mergedConfig.onAdBlocked();
         }
-        return null;
+        return createFakeWindow();
       }
       
       // Allow legitimate window.open calls
       return originalWindowOpen!.call(window, url, target, features);
     };
+  };
+
+  /**
+   * Create fake window object to prevent errors in ad scripts
+   */
+  const createFakeWindow = (): Window => {
+    return {
+      closed: true,
+      focus: () => {},
+      blur: () => {},
+      close: () => {},
+      postMessage: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => true,
+    } as unknown as Window;
   };
 
   /**
@@ -279,23 +424,40 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
     
     state.isActive = true;
     
-    // Event listeners
-    window.addEventListener('blur', handleBlur);
+    // CRITICAL FOR MOBILE: Setup gesture detection first
+    if (state.isMobile) {
+      setupGestureDetection();
+    } else {
+      // On desktop, mark as interacted immediately
+      state.userHasInteracted = true;
+    }
+    
+    // Event listeners (capture phase for priority)
+    window.addEventListener('blur', handleBlur, true);
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('pagehide', handlePageHide);
-    window.addEventListener('pageshow', handlePageShow);
+    window.addEventListener('pagehide', handlePageHide as EventListener);
+    window.addEventListener('pageshow', handlePageShow as EventListener);
     
     // Intervals
     startFocusInterval();
     startWindowMonitor();
     
     // MutationObserver
-    startMutationObserver();
+    if (document.body) {
+      startMutationObserver();
+    } else {
+      // Wait for body to be available
+      document.addEventListener('DOMContentLoaded', startMutationObserver);
+    }
     
-    // Window.open override
+    // Window.open override - always active
     overrideWindowOpen();
     
-    console.log('[AdBlocker] Started with aggressiveness:', mergedConfig.aggressiveness);
+    console.log('[AdBlocker] Started:', {
+      aggressiveness: mergedConfig.aggressiveness,
+      isMobile: state.isMobile,
+      interval: timing.interval + 'ms',
+    });
   };
 
   /**
@@ -305,10 +467,18 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
     state.isActive = false;
     
     // Remove event listeners
-    window.removeEventListener('blur', handleBlur);
+    window.removeEventListener('blur', handleBlur, true);
     document.removeEventListener('visibilitychange', handleVisibilityChange);
-    window.removeEventListener('pagehide', handlePageHide);
-    window.removeEventListener('pageshow', handlePageShow);
+    window.removeEventListener('pagehide', handlePageHide as EventListener);
+    window.removeEventListener('pageshow', handlePageShow as EventListener);
+    
+    // Remove gesture listeners if still attached
+    if (gestureListenersAttached) {
+      ['touchstart', 'click', 'pointerdown', 'mousedown'].forEach(event => {
+        document.removeEventListener(event, handleFirstGesture, true);
+      });
+      gestureListenersAttached = false;
+    }
     
     // Clear intervals
     if (focusInterval) {
@@ -340,17 +510,15 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
    */
   const getBlockedCount = () => state.blockedCount;
 
+  /**
+   * Check if user has interacted (for debugging)
+   */
+  const hasUserInteracted = () => state.userHasInteracted;
+
   return {
     start,
     cleanup,
     getBlockedCount,
+    hasUserInteracted,
   };
-}
-
-/**
- * React hook for using the ad blocker
- */
-export function useAdBlocker(config: Partial<AdBlockerConfig> = {}) {
-  // This is just a type definition - actual hook implementation in React component
-  return { start: () => {}, cleanup: () => {}, getBlockedCount: () => 0 };
 }
