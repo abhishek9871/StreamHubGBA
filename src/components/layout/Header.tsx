@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
-import { FaFilm, FaSearch, FaBars, FaTimes } from 'react-icons/fa';
+import { FaFilm, FaSearch, FaBars, FaTimes, FaHome, FaBookmark, FaCog } from 'react-icons/fa';
 
 const Header: React.FC = () => {
   const [query, setQuery] = useState('');
@@ -18,7 +18,11 @@ const Header: React.FC = () => {
   };
 
   const navLinkClass = ({ isActive }: { isActive: boolean }): string => 
-    `text-text-secondary hover:text-text-primary transition-colors duration-200 ${isActive ? 'text-text-primary font-semibold' : ''}`;
+    `flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium tracking-wide transition-all duration-200 ${
+      isActive 
+        ? 'text-white bg-white/10' 
+        : 'text-gray-300 hover:text-white hover:bg-white/5'
+    }`;
 
   const mobileNavLinkClass = ({ isActive }: { isActive: boolean }): string => 
     `text-3xl font-semibold transition-colors duration-200 ${isActive ? 'text-accent-primary' : 'text-text-secondary hover:text-text-primary'}`;
@@ -49,11 +53,23 @@ const Header: React.FC = () => {
               </span>
               <h1 className="hidden sm:block text-2xl font-heading font-bold text-text-primary">FlixNest</h1>
             </Link>
-            <nav className="hidden md:flex items-center gap-6">
-              <NavLink to="/" className={navLinkClass}>Home</NavLink>
-              <NavLink to="/search" className={navLinkClass}>Search</NavLink>
-              <NavLink to="/watchlist" className={navLinkClass}>Watchlist</NavLink>
-              <NavLink to="/settings" className={navLinkClass}>Settings</NavLink>
+            <nav className="hidden md:flex items-center gap-1">
+              <NavLink to="/" className={navLinkClass}>
+                <FaHome size={14} />
+                <span>Home</span>
+              </NavLink>
+              <NavLink to="/search" className={navLinkClass}>
+                <FaSearch size={14} />
+                <span>Search</span>
+              </NavLink>
+              <NavLink to="/watchlist" className={navLinkClass}>
+                <FaBookmark size={14} />
+                <span>Watchlist</span>
+              </NavLink>
+              <NavLink to="/settings" className={navLinkClass}>
+                <FaCog size={14} />
+                <span>Settings</span>
+              </NavLink>
             </nav>
           </div>
           
