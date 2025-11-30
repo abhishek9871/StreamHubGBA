@@ -4,7 +4,6 @@ import { tmdbService } from '../../../services/tmdb';
 import type { MovieDetails } from '../../../types';
 import { TMDB_IMAGE_BASE_URL } from '../../../utils/constants';
 import { useWatchlist } from '../../../context/WatchlistContext';
-import { createAdBlocker } from '../../../utils/adBlocker';
 import Loader from '../../common/Loader';
 import ContentCarousel from '../Home/ContentCarousel';
 import CastCard from './CastCard';
@@ -20,19 +19,7 @@ const MovieDetail: React.FC = () => {
   const [isPlaying, setIsPlaying] = useState(autoplay);
   const { addToWatchlist, removeFromWatchlist, isInWatchlist } = useWatchlist();
 
-  // Advanced multi-layered ad blocker
-  useEffect(() => {
-    const adBlocker = createAdBlocker({
-      enabled: true,
-      aggressiveness: 'high',
-    });
-    
-    adBlocker.start();
-    
-    return () => {
-      adBlocker.cleanup();
-    };
-  }, []);
+  // Ad blocker is now handled globally in App.tsx
 
   useEffect(() => {
     const fetchMovie = async () => {

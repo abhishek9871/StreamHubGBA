@@ -5,7 +5,6 @@ import type { TVShowDetails, SeasonDetails } from '../../../types';
 import { TMDB_IMAGE_BASE_URL } from '../../../utils/constants';
 import { useWatchlist } from '../../../context/WatchlistContext';
 import { useWatchedEpisodes } from '../../../context/WatchedEpisodesContext';
-import { createAdBlocker } from '../../../utils/adBlocker';
 import Loader from '../../common/Loader';
 import ContentCarousel from '../Home/ContentCarousel';
 import { FaPlay, FaPlus, FaCheck, FaStar, FaTimes, FaCheckCircle, FaChevronDown, FaChevronLeft, FaChevronRight } from 'react-icons/fa';
@@ -27,6 +26,8 @@ const TVDetail: React.FC = () => {
   const { addToWatchlist, removeFromWatchlist, isInWatchlist } = useWatchlist();
   const { isEpisodeWatched, toggleEpisodeWatched } = useWatchedEpisodes();
 
+  // Ad blocker is now handled globally in App.tsx
+
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -36,20 +37,6 @@ const TVDetail: React.FC = () => {
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  // Advanced multi-layered ad blocker
-  useEffect(() => {
-    const adBlocker = createAdBlocker({
-      enabled: true,
-      aggressiveness: 'high',
-    });
-    
-    adBlocker.start();
-    
-    return () => {
-      adBlocker.cleanup();
-    };
   }, []);
 
   useEffect(() => {
