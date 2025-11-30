@@ -19,42 +19,9 @@ const MovieDetail: React.FC = () => {
   const [isPlaying, setIsPlaying] = useState(autoplay);
   const { addToWatchlist, removeFromWatchlist, isInWatchlist } = useWatchlist();
   const lastBlurTime = useRef<number>(0);
-  const [controlsArmed, setControlsArmed] = useState(false);
-  const armTimeoutRef = useRef<number | null>(null);
 
-  const armControls = (armed: boolean) => {
-    setControlsArmed(armed);
-    if (armTimeoutRef.current) {
-      clearTimeout(armTimeoutRef.current);
-      armTimeoutRef.current = null;
-    }
-    // Auto re-arm after short window to block delayed ad triggers
-    if (armed) {
-      armTimeoutRef.current = window.setTimeout(() => {
-        setControlsArmed(false);
-      }, 2500);
-    }
-  };
-
-  // Popup/Ad blocker - maximum aggression for all devices including mobile
+  // Popup/Ad blocker - maximum aggression for click-triggered ads
   useEffect(() => {
-    // Track opened popups to close them
-    const openedWindows: Window[] = [];
-    const originalOpen = window.open;
-    
-    // Intercept window.open calls to track and close popups
-    window.open = function(...args) {
-      const newWindow = originalOpen.apply(this, args);
-      if (newWindow) {
-        openedWindows.push(newWindow);
-        // Try to close immediately
-        try { newWindow.close(); } catch (e) { /* cross-origin */ }
-      }
-      // Refocus our window
-      window.focus();
-      return null; // Prevent the popup
-    };
-
     const handleBlur = () => {
       const now = Date.now();
       // Minimal debounce (20ms) - just enough to prevent true infinite loops
@@ -67,10 +34,6 @@ const MovieDetail: React.FC = () => {
         setTimeout(() => window.focus(), 15);
         setTimeout(() => window.focus(), 30);
         setTimeout(() => window.focus(), 60);
-        // Try to close any tracked popups
-        openedWindows.forEach(w => { try { w.close(); } catch (e) {} });
-        // Require re-arming of controls after a suspected popup attempt
-        armControls(false);
       }
     };
 
@@ -81,9 +44,6 @@ const MovieDetail: React.FC = () => {
         setTimeout(() => window.focus(), 0);
         setTimeout(() => window.focus(), 10);
         setTimeout(() => window.focus(), 30);
-        openedWindows.forEach(w => { try { w.close(); } catch (e) {} });
-        // Re-arm shield on returning from hidden state
-        armControls(false);
       }
     };
 
@@ -101,17 +61,8 @@ const MovieDetail: React.FC = () => {
       window.removeEventListener('blur', handleBlur);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       clearInterval(focusInterval);
-      window.open = originalOpen; // Restore original
-      if (armTimeoutRef.current) clearTimeout(armTimeoutRef.current);
     };
   }, []);
-
-  // Re-arm click shield whenever playback starts
-  useEffect(() => {
-    if (isPlaying) {
-      armControls(false);
-    }
-  }, [isPlaying]);
 
   useEffect(() => {
     const fetchMovie = async () => {
@@ -182,20 +133,6 @@ const MovieDetail: React.FC = () => {
               allowFullScreen
               referrerPolicy="origin"
             />
-            {/* Click shield to absorb the first interaction after load/ad attempt */}
-            {!controlsArmed && (
-              <button
-                aria-label="Enable player controls"
-                className="absolute inset-0 z-10 bg-transparent cursor-pointer"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  armControls(true);
-                  window.focus();
-                  setTimeout(() => window.focus(), 0);
-                }}
-              />
-            )}
             
             {/* Close button overlay */}
             <button

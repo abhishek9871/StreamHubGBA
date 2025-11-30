@@ -14,62 +14,31 @@ const Player: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const lastBlurTime = useRef<number>(0);
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const [controlsArmed, setControlsArmed] = useState(false);
   
   const season = parseInt(searchParams.get('season') || '1', 10);
   const episode = parseInt(searchParams.get('episode') || '1', 10);
 
-  // Popup/Ad blocker - maximum aggression for all devices including mobile
+  // Popup/Ad detection: When window loses focus (popup opened), refocus immediately
   useEffect(() => {
-    // Track opened popups to close them
-    const openedWindows: Window[] = [];
-    const originalOpen = window.open;
-    
-    // Intercept window.open calls to track and close popups
-    window.open = function(...args) {
-      const newWindow = originalOpen.apply(this, args);
-      if (newWindow) {
-        openedWindows.push(newWindow);
-        // Try to close immediately
-        try { newWindow.close(); } catch (e) { /* cross-origin */ }
-      }
-      // Refocus our window
-      window.focus();
-      return null; // Prevent the popup
-    };
-
     const handleBlur = () => {
       const now = Date.now();
-      if (now - lastBlurTime.current > 20) {
+      // Debounce: only count as ad if blur happens within interaction context
+      if (now - lastBlurTime.current > 500) {
         lastBlurTime.current = now;
-        // Rapid-fire focus attempts
-        window.focus();
-        setTimeout(() => window.focus(), 0);
-        setTimeout(() => window.focus(), 5);
-        setTimeout(() => window.focus(), 15);
-        setTimeout(() => window.focus(), 30);
-        setTimeout(() => window.focus(), 60);
-        // Try to close any tracked popups
-        openedWindows.forEach(w => { try { w.close(); } catch (e) {} });
+        
+        // Immediately try to refocus our window
+        setTimeout(() => {
+          window.focus();
+        }, 100);
       }
     };
 
     const handleVisibilityChange = () => {
+      // If tab becomes hidden due to popup, try to regain focus
       if (document.hidden) {
-        window.focus();
-        setTimeout(() => window.focus(), 0);
-        setTimeout(() => window.focus(), 10);
-        setTimeout(() => window.focus(), 30);
-        openedWindows.forEach(w => { try { w.close(); } catch (e) {} });
+        setTimeout(() => window.focus(), 100);
       }
     };
-
-    // Fast proactive focus keeper (50ms)
-    const focusInterval = setInterval(() => {
-      if (!document.hasFocus()) {
-        window.focus();
-      }
-    }, 50);
 
     window.addEventListener('blur', handleBlur);
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -77,16 +46,8 @@ const Player: React.FC = () => {
     return () => {
       window.removeEventListener('blur', handleBlur);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      clearInterval(focusInterval);
-      window.open = originalOpen; // Restore original
     };
   }, []);
-
-  useEffect(() => {
-    if (streamUrl) {
-      setControlsArmed(false);
-    }
-  }, [streamUrl]);
 
   useEffect(() => {
     const loadContent = async () => {
@@ -139,7 +100,7 @@ const Player: React.FC = () => {
   return (
     <div className="min-h-screen bg-black flex items-center justify-center">
       <div className="relative w-full aspect-video max-w-screen-2xl">
-        {/* Video iframe - with click shield to absorb first interaction */}
+        {/* Video iframe - no overlay, full interactivity */}
         <iframe
           ref={iframeRef}
           src={streamUrl}
@@ -150,19 +111,6 @@ const Player: React.FC = () => {
           allowFullScreen
           referrerPolicy="origin"
         />
-        {!controlsArmed && (
-          <button
-            aria-label="Enable player controls"
-            className="absolute inset-0 z-10 bg-transparent cursor-pointer"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setControlsArmed(true);
-              window.focus();
-              setTimeout(() => window.focus(), 0);
-            }}
-          />
-        )}
         
         {/* Back button overlay - always visible in corner */}
         <button 
