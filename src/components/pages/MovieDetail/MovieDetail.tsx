@@ -130,6 +130,7 @@ const MovieDetail: React.FC = () => {
               title={movie.title}
               frameBorder="0"
               allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+              sandbox="allow-forms allow-scripts allow-same-origin allow-presentation allow-orientation-lock"
               allowFullScreen
               referrerPolicy="origin"
             />
