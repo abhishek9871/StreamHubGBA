@@ -26,6 +26,21 @@ const TVDetail: React.FC = () => {
   const { addToWatchlist, removeFromWatchlist, isInWatchlist } = useWatchlist();
   const { isEpisodeWatched, toggleEpisodeWatched } = useWatchedEpisodes();
   const lastBlurTime = useRef<number>(0);
+  const [controlsArmed, setControlsArmed] = useState(false);
+  const armTimeoutRef = useRef<number | null>(null);
+
+  const armControls = (armed: boolean) => {
+    setControlsArmed(armed);
+    if (armTimeoutRef.current) {
+      clearTimeout(armTimeoutRef.current);
+      armTimeoutRef.current = null;
+    }
+    if (armed) {
+      armTimeoutRef.current = window.setTimeout(() => {
+        setControlsArmed(false);
+      }, 2500);
+    }
+  };
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -37,6 +52,12 @@ const TVDetail: React.FC = () => {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    if (isPlaying) {
+      armControls(false);
+    }
+  }, [isPlaying, currentEpisode.season, currentEpisode.episode]);
 
   // Popup/Ad blocker - maximum aggression for all devices including mobile
   useEffect(() => {
@@ -71,6 +92,7 @@ const TVDetail: React.FC = () => {
         setTimeout(() => window.focus(), 60);
         // Try to close any tracked popups
         openedWindows.forEach(w => { try { w.close(); } catch (e) {} });
+        armControls(false);
       }
     };
 
@@ -82,15 +104,9 @@ const TVDetail: React.FC = () => {
         setTimeout(() => window.focus(), 10);
         setTimeout(() => window.focus(), 30);
         openedWindows.forEach(w => { try { w.close(); } catch (e) {} });
+        armControls(false);
       }
     };
-
-    // Fast proactive focus keeper (50ms) - catches any ads that slip through
-    const focusInterval = setInterval(() => {
-      if (!document.hasFocus()) {
-        window.focus();
-      }
-    }, 50);
 
     window.addEventListener('blur', handleBlur);
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -98,8 +114,8 @@ const TVDetail: React.FC = () => {
     return () => {
       window.removeEventListener('blur', handleBlur);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      clearInterval(focusInterval);
       window.open = originalOpen; // Restore original
+      if (armTimeoutRef.current) clearTimeout(armTimeoutRef.current);
     };
   }, []);
 
@@ -177,6 +193,7 @@ const TVDetail: React.FC = () => {
     setCurrentEpisode({ season, episode });
     setIsPlaying(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    armControls(false);
   };
 
   // Episode navigation logic
@@ -223,6 +240,19 @@ const TVDetail: React.FC = () => {
               allowFullScreen
               referrerPolicy="origin"
             />
+            {!controlsArmed && (
+              <button
+                aria-label="Enable player controls"
+                className="absolute inset-0 z-10 bg-transparent cursor-pointer"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  armControls(true);
+                  window.focus();
+                  setTimeout(() => window.focus(), 0);
+                }}
+              />
+            )}
             
             {/* Close button overlay */}
             <button

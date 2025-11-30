@@ -14,6 +14,7 @@ const Player: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const lastBlurTime = useRef<number>(0);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [controlsArmed, setControlsArmed] = useState(false);
   
   const season = parseInt(searchParams.get('season') || '1', 10);
   const episode = parseInt(searchParams.get('episode') || '1', 10);
@@ -82,6 +83,12 @@ const Player: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (streamUrl) {
+      setControlsArmed(false);
+    }
+  }, [streamUrl]);
+
+  useEffect(() => {
     const loadContent = async () => {
       setLoading(true);
       setError(null);
@@ -132,7 +139,7 @@ const Player: React.FC = () => {
   return (
     <div className="min-h-screen bg-black flex items-center justify-center">
       <div className="relative w-full aspect-video max-w-screen-2xl">
-        {/* Video iframe - no overlay, full interactivity */}
+        {/* Video iframe - with click shield to absorb first interaction */}
         <iframe
           ref={iframeRef}
           src={streamUrl}
@@ -143,6 +150,19 @@ const Player: React.FC = () => {
           allowFullScreen
           referrerPolicy="origin"
         />
+        {!controlsArmed && (
+          <button
+            aria-label="Enable player controls"
+            className="absolute inset-0 z-10 bg-transparent cursor-pointer"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setControlsArmed(true);
+              window.focus();
+              setTimeout(() => window.focus(), 0);
+            }}
+          />
+        )}
         
         {/* Back button overlay - always visible in corner */}
         <button 
