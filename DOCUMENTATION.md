@@ -267,6 +267,55 @@ sandbox="allow-same-origin allow-scripts allow-forms allow-presentation"
 
 ---
 
+### Issue: Popup Ads Opening New Tabs
+
+**Problem**: When users interact with the video player (click to play, pause, seek), popup ads would open in new browser tabs, disrupting the viewing experience.
+
+**Root Cause**: vidsrc.cc injects ad triggers on user interactions within the iframe. Since the iframe is cross-origin, we cannot directly block these triggers.
+
+**Solution**: Implemented an **Auto-Focus Recovery System** in `PlayerPage.tsx`:
+
+```tsx
+// Popup/Ad detection: When window loses focus (popup opened), refocus immediately
+useEffect(() => {
+  const handleBlur = () => {
+    const now = Date.now();
+    if (now - lastBlurTime.current > 500) {
+      lastBlurTime.current = now;
+      setTimeout(() => {
+        window.focus();
+        setAdsBlocked(prev => prev + 1);
+      }, 100);
+    }
+  };
+
+  const handleVisibilityChange = () => {
+    if (document.hidden) {
+      setTimeout(() => window.focus(), 100);
+    }
+  };
+
+  window.addEventListener('blur', handleBlur);
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+  
+  return () => {
+    window.removeEventListener('blur', handleBlur);
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+  };
+}, []);
+```
+
+**How it works**:
+1. **No blocking overlay** - Users can interact with video controls immediately
+2. **Blur detection** - When a popup opens, our window loses focus (blur event fires)
+3. **Auto-refocus** - We immediately call `window.focus()` to bring attention back to our tab
+4. **Subtle notification** - "Ad blocked (N)" appears briefly in the corner
+5. **Full video control** - Play, pause, seek, quality, volume, fullscreen all work normally
+
+**Result**: Popup ads are effectively blocked - they may open in the background but the user stays on our tab and doesn't notice the interruption.
+
+---
+
 ## Environment Variables
 
 | Variable | Description | Default |
