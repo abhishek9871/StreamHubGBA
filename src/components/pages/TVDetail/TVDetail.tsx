@@ -38,35 +38,39 @@ const TVDetail: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Popup/Ad blocker - aggressive protection
+  // Popup/Ad blocker - maximum aggression for click-triggered ads
   useEffect(() => {
     const handleBlur = () => {
       const now = Date.now();
-      // Short debounce (50ms) to prevent infinite loops but catch rapid popups
-      if (now - lastBlurTime.current > 50) {
+      // Minimal debounce (20ms) - just enough to prevent true infinite loops
+      if (now - lastBlurTime.current > 20) {
         lastBlurTime.current = now;
-        // Immediate focus attempt
+        // Immediate and rapid-fire focus attempts to catch click-triggered popups
         window.focus();
-        // Backup delayed focus attempts
-        setTimeout(() => window.focus(), 10);
-        setTimeout(() => window.focus(), 50);
+        setTimeout(() => window.focus(), 0);
+        setTimeout(() => window.focus(), 5);
+        setTimeout(() => window.focus(), 15);
+        setTimeout(() => window.focus(), 30);
+        setTimeout(() => window.focus(), 60);
       }
     };
 
     const handleVisibilityChange = () => {
       if (document.hidden) {
+        // Tab was hidden (switched to ad tab) - fight back immediately
         window.focus();
+        setTimeout(() => window.focus(), 0);
         setTimeout(() => window.focus(), 10);
+        setTimeout(() => window.focus(), 30);
       }
     };
 
-    // Proactive focus keeper - runs while component is mounted
-    // Catches any popups that slip through event handlers
+    // Fast proactive focus keeper (50ms) - catches any ads that slip through
     const focusInterval = setInterval(() => {
       if (!document.hasFocus()) {
         window.focus();
       }
-    }, 100);
+    }, 50);
 
     window.addEventListener('blur', handleBlur);
     document.addEventListener('visibilitychange', handleVisibilityChange);
