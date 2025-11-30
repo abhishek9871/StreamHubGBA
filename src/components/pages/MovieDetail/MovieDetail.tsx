@@ -1,28 +1,57 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { useParams } from 'react-router-dom';
 import { tmdbService } from '../../../services/tmdb';
 import type { MovieDetails } from '../../../types';
 import { TMDB_IMAGE_BASE_URL } from '../../../utils/constants';
 import { useWatchlist } from '../../../context/WatchlistContext';
 import Loader from '../../common/Loader';
-import Button from '../../common/Button';
 import ContentCarousel from '../Home/ContentCarousel';
 import CastCard from './CastCard';
-import { FaPlay, FaHeart, FaRegHeart, FaStar, FaClock, FaCalendarAlt } from 'react-icons/fa';
+import { FaPlay, FaPlus, FaCheck, FaStar, FaTimes, FaVolumeUp, FaVolumeMute } from 'react-icons/fa';
 
 const MovieDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
   const [movie, setMovie] = useState<MovieDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
   const { addToWatchlist, removeFromWatchlist, isInWatchlist } = useWatchlist();
+  const lastBlurTime = useRef<number>(0);
+
+  // Popup/Ad blocker - same as PlayerPage
+  useEffect(() => {
+    if (!isPlaying) return;
+    
+    const handleBlur = () => {
+      const now = Date.now();
+      if (now - lastBlurTime.current > 500) {
+        lastBlurTime.current = now;
+        setTimeout(() => window.focus(), 100);
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        setTimeout(() => window.focus(), 100);
+      }
+    };
+
+    window.addEventListener('blur', handleBlur);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    return () => {
+      window.removeEventListener('blur', handleBlur);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isPlaying]);
 
   useEffect(() => {
     const fetchMovie = async () => {
       if (!id) return;
       setLoading(true);
       setError(null);
+      setIsPlaying(false);
       try {
         const data = await tmdbService.getMovieDetails(id);
         setMovie(data);
@@ -37,14 +66,25 @@ const MovieDetail: React.FC = () => {
   }, [id]);
 
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center"><Loader /></div>;
+    return (
+      <div className="min-h-screen bg-bg-primary flex items-center justify-center">
+        <Loader />
+      </div>
+    );
   }
 
   if (error || !movie) {
-    return <div className="min-h-screen flex items-center justify-center text-error">{error || 'Movie not found.'}</div>;
+    return (
+      <div className="min-h-screen bg-bg-primary flex items-center justify-center text-error">
+        {error || 'Movie not found.'}
+      </div>
+    );
   }
 
   const inWatchlist = isInWatchlist(movie.id);
+  const year = movie.release_date ? new Date(movie.release_date).getFullYear() : 'N/A';
+  const runtime = movie.runtime ? `${Math.floor(movie.runtime / 60)}h ${movie.runtime % 60}m` : 'N/A';
+  const streamUrl = `https://vidsrc.cc/v2/embed/movie/${movie.id}?autoplay=1&autonext=1`;
 
   const handleWatchlistToggle = () => {
     if (inWatchlist) {
@@ -54,98 +94,154 @@ const MovieDetail: React.FC = () => {
     }
   };
 
-  const year = movie.release_date ? new Date(movie.release_date).getFullYear() : 'N/A';
-  const runtime = movie.runtime ? `${Math.floor(movie.runtime / 60)}h ${movie.runtime % 60}m` : 'N/A';
-
   return (
-    <div className="min-h-screen bg-bg-primary text-text-primary">
-      {/* Hero Section */}
-      <div className="relative min-h-[50vh] md:min-h-[70vh]">
-        {movie.backdrop_path && (
-            <img
-            src={`${TMDB_IMAGE_BASE_URL}/original${movie.backdrop_path}`}
-            alt={movie.title}
-            className="absolute inset-0 w-full h-full object-cover opacity-30"
-            loading="lazy"
+    <div className="min-h-screen bg-bg-primary">
+      {/* Netflix-style Hero Section */}
+      <div className="relative w-full" style={{ height: isPlaying ? '56.25vw' : '70vh', maxHeight: isPlaying ? '80vh' : '70vh' }}>
+        
+        {/* Backdrop Image or Video Player */}
+        {isPlaying ? (
+          <>
+            {/* Inline Video Player */}
+            <iframe
+              src={streamUrl}
+              className="absolute inset-0 w-full h-full"
+              title={movie.title}
+              frameBorder="0"
+              allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+              allowFullScreen
+              referrerPolicy="origin"
             />
-        )}
-        <div className="absolute inset-0 bg-gradient-to-t from-bg-primary via-bg-primary/80 to-transparent"></div>
-        <div className="relative z-10 container mx-auto px-4 h-full flex flex-col md:flex-row items-end pb-8 gap-8">
-          <div className="w-48 md:w-64 flex-shrink-0 transform translate-y-16 mb-16 md:transform-none md:translate-y-0 md:mb-0">
-             {movie.poster_path && (
-                <img
-                    src={`${TMDB_IMAGE_BASE_URL}/w500${movie.poster_path}`}
-                    alt={movie.title}
-                    className="rounded-lg shadow-2xl"
-                    loading="lazy"
-                />
-             )}
-          </div>
-          <div className="flex flex-col gap-2">
-            <h1 className="text-3xl md:text-5xl font-bold font-heading">{movie.title}</h1>
-            {movie.tagline && <p className="text-text-muted italic">"{movie.tagline}"</p>}
-            <div className="flex items-center flex-wrap gap-x-4 gap-y-2 text-text-secondary">
-              <div className="flex items-center gap-1"><FaStar className="text-yellow-400" /> {movie.vote_average.toFixed(1)}</div>
-              <div className="flex items-center gap-1"><FaCalendarAlt /> {year}</div>
-              <div className="flex items-center gap-1"><FaClock /> {runtime}</div>
+            
+            {/* Player Controls Overlay */}
+            <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
+              <button
+                onClick={() => setIsMuted(!isMuted)}
+                className="p-3 rounded-full bg-surface/80 hover:bg-surface text-text-primary transition-colors"
+              >
+                {isMuted ? <FaVolumeMute size={18} /> : <FaVolumeUp size={18} />}
+              </button>
+              <button
+                onClick={() => setIsPlaying(false)}
+                className="p-3 rounded-full bg-surface/80 hover:bg-surface text-text-primary transition-colors"
+              >
+                <FaTimes size={18} />
+              </button>
             </div>
-            <div className="flex flex-wrap gap-2 mt-2">
-              {movie.genres.map(genre => (
-                <span key={genre.id} className="text-xs bg-surface px-2 py-1 rounded">{genre.name}</span>
+          </>
+        ) : (
+          <>
+            {/* Backdrop Image */}
+            {movie.backdrop_path && (
+              <img
+                src={`${TMDB_IMAGE_BASE_URL}/original${movie.backdrop_path}`}
+                alt={movie.title}
+                className="absolute inset-0 w-full h-full object-cover"
+                loading="eager"
+              />
+            )}
+            
+            {/* Gradient Overlays */}
+            <div className="absolute inset-0 bg-gradient-to-r from-bg-primary via-bg-primary/60 to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-t from-bg-primary via-transparent to-bg-primary/30" />
+            
+            {/* Content Overlay */}
+            <div className="absolute inset-0 flex items-center">
+              <div className="container mx-auto px-4 md:px-8 lg:px-16">
+                <div className="max-w-2xl space-y-4">
+                  {/* Title */}
+                  <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold font-heading text-white drop-shadow-lg">
+                    {movie.title}
+                  </h1>
+                  
+                  {/* Metadata Row */}
+                  <div className="flex items-center gap-3 text-sm md:text-base text-white/90">
+                    <span className="flex items-center gap-1 text-green-400 font-semibold">
+                      <FaStar className="text-yellow-400" /> {movie.vote_average.toFixed(1)}
+                    </span>
+                    <span className="text-white/60">|</span>
+                    <span>{year}</span>
+                    <span className="text-white/60">|</span>
+                    <span>{runtime}</span>
+                    <span className="px-2 py-0.5 border border-white/40 rounded text-xs">HD</span>
+                  </div>
+                  
+                  {/* Genres */}
+                  <div className="flex flex-wrap gap-2">
+                    {movie.genres.slice(0, 4).map(genre => (
+                      <span key={genre.id} className="text-sm text-white/80">
+                        {genre.name}
+                        {genre !== movie.genres.slice(0, 4).at(-1) && <span className="ml-2">•</span>}
+                      </span>
+                    ))}
+                  </div>
+                  
+                  {/* Overview */}
+                  <p className="text-white/80 text-sm md:text-base line-clamp-3 max-w-xl">
+                    {movie.overview}
+                  </p>
+                  
+                  {/* Action Buttons */}
+                  <div className="flex items-center gap-3 pt-4">
+                    <button
+                      onClick={() => setIsPlaying(true)}
+                      className="flex items-center gap-2 px-6 md:px-8 py-3 bg-white hover:bg-white/90 text-black font-bold rounded-md transition-colors text-lg"
+                    >
+                      <FaPlay /> Play
+                    </button>
+                    <button
+                      onClick={handleWatchlistToggle}
+                      className="flex items-center gap-2 px-6 md:px-8 py-3 bg-gray-500/70 hover:bg-gray-500/90 text-white font-semibold rounded-md transition-colors"
+                    >
+                      {inWatchlist ? <FaCheck /> : <FaPlus />}
+                      {inWatchlist ? 'Added' : 'My List'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Content Section */}
+      <div className="container mx-auto px-4 md:px-8 lg:px-16 py-8">
+        {/* About Section */}
+        <div className="mb-12">
+          <h2 className="text-xl font-semibold text-white mb-4">About {movie.title}</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <div className="md:col-span-2">
+              <p className="text-text-secondary leading-relaxed">{movie.overview}</p>
+            </div>
+            <div className="space-y-2 text-sm">
+              {movie.tagline && (
+                <p><span className="text-text-muted">Tagline:</span> <span className="text-white italic">"{movie.tagline}"</span></p>
+              )}
+              <p><span className="text-text-muted">Genres:</span> <span className="text-white">{movie.genres.map(g => g.name).join(', ')}</span></p>
+              <p><span className="text-text-muted">Release:</span> <span className="text-white">{movie.release_date}</span></p>
+              <p><span className="text-text-muted">Runtime:</span> <span className="text-white">{runtime}</span></p>
+            </div>
+          </div>
+        </div>
+
+        {/* Cast Section */}
+        {movie.credits?.cast && movie.credits.cast.length > 0 && (
+          <div className="mb-12">
+            <h2 className="text-xl font-semibold text-white mb-4">Cast</h2>
+            <div className="flex overflow-x-auto gap-4 pb-4 scrollbar-hide">
+              {movie.credits.cast.slice(0, 12).map((person, index) => (
+                <CastCard key={`${person.id}-${index}`} person={person} />
               ))}
             </div>
           </div>
-        </div>
-      </div>
+        )}
 
-      {/* Details Section */}
-      <div className="container mx-auto px-4 pt-12 pb-8 md:py-16">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          <div className="md:col-span-2">
-            <h2 className="text-2xl font-bold font-heading mb-4">Overview</h2>
-            <p className="text-text-secondary leading-relaxed">{movie.overview}</p>
-            
-            {movie.credits?.cast && movie.credits.cast.length > 0 && (
-              <div className="mt-12">
-                 <h2 className="text-2xl font-bold font-heading mb-4">Cast</h2>
-                 <div className="flex overflow-x-auto space-x-4 pb-4 scrollbar-thin">
-                   {movie.credits.cast.slice(0, 15).map((person, index) => (
-                     <CastCard key={`${person.id}-${index}`} person={person} />
-                   ))}
-                 </div>
-              </div>
-            )}
+        {/* Similar Movies */}
+        {movie.similar?.results && movie.similar.results.length > 0 && (
+          <div className="mb-8">
+            <ContentCarousel title="More Like This" items={movie.similar.results} />
           </div>
-          
-          <div className="md:col-span-1">
-             <div className="flex flex-col gap-4">
-                <Button
-                    variant="primary"
-                    size="lg"
-                    fullWidth
-                    icon={FaPlay}
-                    onClick={() => navigate(`/play/movie/${movie.id}`)}
-                >
-                    Play Now
-                </Button>
-                <Button
-                    variant="outline"
-                    size="lg"
-                    fullWidth
-                    icon={inWatchlist ? FaHeart : FaRegHeart}
-                    onClick={handleWatchlistToggle}
-                >
-                    {inWatchlist ? 'In Watchlist' : 'Add to Watchlist'}
-                </Button>
-             </div>
-          </div>
-        </div>
-         
-         {movie.similar?.results && movie.similar.results.length > 0 && (
-            <div className="mt-12">
-                <ContentCarousel title="Similar Movies" items={movie.similar.results} />
-            </div>
-         )}
+        )}
       </div>
     </div>
   );
