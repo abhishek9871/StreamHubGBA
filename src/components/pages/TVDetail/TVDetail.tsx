@@ -38,52 +38,39 @@ const TVDetail: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Popup/Ad blocker - no debounce, maximum speed
+  // Popup/Ad blocker - maximum aggression for click-triggered ads
   useEffect(() => {
-    // Aggressive focus recovery - no debounce needed since focus() on focused window is no-op
-    const forceFocus = () => {
-      window.focus();
-      // Use requestAnimationFrame for fastest possible follow-up
-      requestAnimationFrame(() => window.focus());
-    };
-
     const handleBlur = () => {
-      // Immediate focus attempt
-      forceFocus();
-      // Rapid backup attempts at different timings
-      setTimeout(forceFocus, 0);
-      setTimeout(forceFocus, 10);
-      setTimeout(forceFocus, 25);
-      setTimeout(forceFocus, 50);
-      setTimeout(forceFocus, 100);
+      const now = Date.now();
+      // Minimal debounce (20ms) - just enough to prevent true infinite loops
+      if (now - lastBlurTime.current > 20) {
+        lastBlurTime.current = now;
+        // Immediate and rapid-fire focus attempts to catch click-triggered popups
+        window.focus();
+        setTimeout(() => window.focus(), 0);
+        setTimeout(() => window.focus(), 5);
+        setTimeout(() => window.focus(), 15);
+        setTimeout(() => window.focus(), 30);
+        setTimeout(() => window.focus(), 60);
+      }
     };
 
     const handleVisibilityChange = () => {
       if (document.hidden) {
-        // Tab was hidden (switched to ad tab) - fight back
-        forceFocus();
-        setTimeout(forceFocus, 0);
-        setTimeout(forceFocus, 20);
-        setTimeout(forceFocus, 50);
+        // Tab was hidden (switched to ad tab) - fight back immediately
+        window.focus();
+        setTimeout(() => window.focus(), 0);
+        setTimeout(() => window.focus(), 10);
+        setTimeout(() => window.focus(), 30);
       }
     };
 
-    // Very fast proactive focus keeper (30ms interval)
+    // Fast proactive focus keeper (50ms) - catches any ads that slip through
     const focusInterval = setInterval(() => {
       if (!document.hasFocus()) {
         window.focus();
       }
-    }, 30);
-
-    // Also use requestAnimationFrame loop for maximum responsiveness
-    let rafId: number;
-    const rafLoop = () => {
-      if (!document.hasFocus()) {
-        window.focus();
-      }
-      rafId = requestAnimationFrame(rafLoop);
-    };
-    rafId = requestAnimationFrame(rafLoop);
+    }, 50);
 
     window.addEventListener('blur', handleBlur);
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -92,7 +79,6 @@ const TVDetail: React.FC = () => {
       window.removeEventListener('blur', handleBlur);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       clearInterval(focusInterval);
-      cancelAnimationFrame(rafId);
     };
   }, []);
 
