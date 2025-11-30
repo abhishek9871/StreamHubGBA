@@ -19,10 +19,8 @@ const MovieDetail: React.FC = () => {
   const { addToWatchlist, removeFromWatchlist, isInWatchlist } = useWatchlist();
   const lastBlurTime = useRef<number>(0);
 
-  // Popup/Ad blocker - same as PlayerPage
+  // Popup/Ad blocker - always active when component is mounted
   useEffect(() => {
-    if (!isPlaying) return;
-    
     const handleBlur = () => {
       const now = Date.now();
       if (now - lastBlurTime.current > 500) {
@@ -44,7 +42,7 @@ const MovieDetail: React.FC = () => {
       window.removeEventListener('blur', handleBlur);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [isPlaying]);
+  }, []);
 
   useEffect(() => {
     const fetchMovie = async () => {

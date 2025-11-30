@@ -23,10 +23,8 @@ const TVDetail: React.FC = () => {
   const { isEpisodeWatched, toggleEpisodeWatched } = useWatchedEpisodes();
   const lastBlurTime = useRef<number>(0);
 
-  // Popup/Ad blocker
+  // Popup/Ad blocker - always active when component is mounted
   useEffect(() => {
-    if (!isPlaying) return;
-    
     const handleBlur = () => {
       const now = Date.now();
       if (now - lastBlurTime.current > 500) {
@@ -48,7 +46,7 @@ const TVDetail: React.FC = () => {
       window.removeEventListener('blur', handleBlur);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [isPlaying]);
+  }, []);
 
   useEffect(() => {
     const fetchShow = async () => {
