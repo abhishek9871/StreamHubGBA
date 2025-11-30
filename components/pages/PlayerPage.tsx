@@ -93,7 +93,7 @@ const PlayerPage: React.FC = () => {
             frameBorder="0"
             allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
             allowFullScreen
-            sandbox="allow-same-origin allow-scripts allow-forms allow-presentation"
+            referrerPolicy="origin"
             />
         </div>
       </div>
