@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { tmdbService } from '../../../services/tmdb';
 import type { MovieDetails } from '../../../types';
 import { TMDB_IMAGE_BASE_URL } from '../../../utils/constants';
 import { useWatchlist } from '../../../context/WatchlistContext';
+import { createAdBlocker } from '../../../utils/adBlocker';
 import Loader from '../../common/Loader';
 import ContentCarousel from '../Home/ContentCarousel';
 import CastCard from './CastCard';
@@ -18,49 +19,18 @@ const MovieDetail: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(autoplay);
   const { addToWatchlist, removeFromWatchlist, isInWatchlist } = useWatchlist();
-  const lastBlurTime = useRef<number>(0);
 
-  // Popup/Ad blocker - maximum aggression for click-triggered ads
+  // Advanced multi-layered ad blocker
   useEffect(() => {
-    const handleBlur = () => {
-      const now = Date.now();
-      // Minimal debounce (20ms) - just enough to prevent true infinite loops
-      if (now - lastBlurTime.current > 20) {
-        lastBlurTime.current = now;
-        // Immediate and rapid-fire focus attempts to catch click-triggered popups
-        window.focus();
-        setTimeout(() => window.focus(), 0);
-        setTimeout(() => window.focus(), 5);
-        setTimeout(() => window.focus(), 15);
-        setTimeout(() => window.focus(), 30);
-        setTimeout(() => window.focus(), 60);
-      }
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        // Tab was hidden (switched to ad tab) - fight back immediately
-        window.focus();
-        setTimeout(() => window.focus(), 0);
-        setTimeout(() => window.focus(), 10);
-        setTimeout(() => window.focus(), 30);
-      }
-    };
-
-    // Fast proactive focus keeper (50ms) - catches any ads that slip through
-    const focusInterval = setInterval(() => {
-      if (!document.hasFocus()) {
-        window.focus();
-      }
-    }, 50);
-
-    window.addEventListener('blur', handleBlur);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    const adBlocker = createAdBlocker({
+      enabled: true,
+      aggressiveness: 'high',
+    });
+    
+    adBlocker.start();
     
     return () => {
-      window.removeEventListener('blur', handleBlur);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      clearInterval(focusInterval);
+      adBlocker.cleanup();
     };
   }, []);
 
