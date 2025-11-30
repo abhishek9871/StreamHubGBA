@@ -5,6 +5,7 @@ import { WatchlistProvider } from './context/WatchlistContext';
 import { WatchedEpisodesProvider } from './context/WatchedEpisodesContext';
 import Loader from './components/common/Loader';
 import ErrorBoundary from './components/common/ErrorBoundary';
+import ScrollToTop from './components/common/ScrollToTop';
 
 // Lazy load page components for performance optimization
 const Home = lazy(() => import('./components/pages/Home/Home'));
@@ -21,6 +22,7 @@ const App: React.FC = () => {
       <WatchlistProvider>
         <WatchedEpisodesProvider>
           <HashRouter>
+            <ScrollToTop />
             <AppLayout>
               <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><Loader /></div>}>
                 <Routes>

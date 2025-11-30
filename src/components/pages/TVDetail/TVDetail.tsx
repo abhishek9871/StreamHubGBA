@@ -7,7 +7,7 @@ import { useWatchlist } from '../../../context/WatchlistContext';
 import { useWatchedEpisodes } from '../../../context/WatchedEpisodesContext';
 import Loader from '../../common/Loader';
 import ContentCarousel from '../Home/ContentCarousel';
-import { FaPlay, FaPlus, FaCheck, FaStar, FaTimes, FaCheckCircle } from 'react-icons/fa';
+import { FaPlay, FaPlus, FaCheck, FaStar, FaTimes, FaCheckCircle, FaChevronDown } from 'react-icons/fa';
 
 const TVDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -19,9 +19,22 @@ const TVDetail: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentEpisode, setCurrentEpisode] = useState<{ season: number; episode: number }>({ season: 1, episode: 1 });
+  const [isSeasonDropdownOpen, setIsSeasonDropdownOpen] = useState(false);
+  const seasonDropdownRef = useRef<HTMLDivElement>(null);
   const { addToWatchlist, removeFromWatchlist, isInWatchlist } = useWatchlist();
   const { isEpisodeWatched, toggleEpisodeWatched } = useWatchedEpisodes();
   const lastBlurTime = useRef<number>(0);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (seasonDropdownRef.current && !seasonDropdownRef.current.contains(event.target as Node)) {
+        setIsSeasonDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Popup/Ad blocker - always active when component is mounted
   useEffect(() => {
@@ -230,18 +243,46 @@ const TVDetail: React.FC = () => {
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-semibold text-white">Episodes</h2>
             {show.seasons && show.seasons.length > 0 && (
-              <select
-                value={selectedSeason}
-                onChange={(e) => setSelectedSeason(Number(e.target.value))}
-                className="bg-surface border border-surface-hover rounded-md px-4 py-2 pr-8 text-white focus:outline-none focus:ring-2 focus:ring-accent-primary appearance-none cursor-pointer"
-                style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='white'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.5rem center', backgroundSize: '1.25rem' }}
-              >
-                {show.seasons.filter(s => s.season_number > 0).map(season => (
-                  <option key={season.id} value={season.season_number}>
-                    Season {season.season_number}
-                  </option>
-                ))}
-              </select>
+              <div className="relative" ref={seasonDropdownRef}>
+                {/* Dropdown trigger button */}
+                <button
+                  onClick={() => setIsSeasonDropdownOpen(!isSeasonDropdownOpen)}
+                  className="flex items-center gap-3 bg-transparent border-2 border-white/30 hover:border-white/50 rounded px-4 py-2.5 text-white font-medium transition-all duration-200 min-w-[140px] justify-between"
+                >
+                  <span>Season {selectedSeason}</span>
+                  <FaChevronDown 
+                    className={`transition-transform duration-200 ${isSeasonDropdownOpen ? 'rotate-180' : ''}`} 
+                    size={12} 
+                  />
+                </button>
+                
+                {/* Dropdown menu */}
+                {isSeasonDropdownOpen && (
+                  <div className="absolute top-full right-0 mt-1 bg-[#1a1a1a] border border-white/10 rounded-md shadow-2xl z-50 min-w-[160px] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                    <div className="max-h-64 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent">
+                      {show.seasons.filter(s => s.season_number > 0).map(season => (
+                        <button
+                          key={season.id}
+                          onClick={() => {
+                            setSelectedSeason(season.season_number);
+                            setIsSeasonDropdownOpen(false);
+                          }}
+                          className={`w-full text-left px-4 py-3 text-sm transition-colors duration-150 flex items-center justify-between ${
+                            selectedSeason === season.season_number
+                              ? 'bg-white/10 text-white font-medium'
+                              : 'text-gray-300 hover:bg-white/5 hover:text-white'
+                          }`}
+                        >
+                          <span>Season {season.season_number}</span>
+                          {selectedSeason === season.season_number && (
+                            <FaCheck size={12} className="text-white" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
           </div>
           

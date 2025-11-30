@@ -7,7 +7,7 @@ import { useWatchlist } from '../../../context/WatchlistContext';
 import Loader from '../../common/Loader';
 import ContentCarousel from '../Home/ContentCarousel';
 import CastCard from './CastCard';
-import { FaPlay, FaPlus, FaCheck, FaStar, FaTimes, FaVolumeUp, FaVolumeMute } from 'react-icons/fa';
+import { FaPlay, FaPlus, FaCheck, FaStar, FaTimes } from 'react-icons/fa';
 
 const MovieDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -15,7 +15,6 @@ const MovieDetail: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
   const { addToWatchlist, removeFromWatchlist, isInWatchlist } = useWatchlist();
   const lastBlurTime = useRef<number>(0);
 
@@ -111,21 +110,13 @@ const MovieDetail: React.FC = () => {
               referrerPolicy="origin"
             />
             
-            {/* Player Controls Overlay */}
-            <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
-              <button
-                onClick={() => setIsMuted(!isMuted)}
-                className="p-3 rounded-full bg-surface/80 hover:bg-surface text-text-primary transition-colors"
-              >
-                {isMuted ? <FaVolumeMute size={18} /> : <FaVolumeUp size={18} />}
-              </button>
-              <button
-                onClick={() => setIsPlaying(false)}
-                className="p-3 rounded-full bg-surface/80 hover:bg-surface text-text-primary transition-colors"
-              >
-                <FaTimes size={18} />
-              </button>
-            </div>
+            {/* Close button overlay */}
+            <button
+              onClick={() => setIsPlaying(false)}
+              className="absolute top-4 right-4 z-20 p-3 rounded-full bg-surface/80 hover:bg-surface text-text-primary transition-colors"
+            >
+              <FaTimes size={18} />
+            </button>
           </>
         ) : (
           <>
