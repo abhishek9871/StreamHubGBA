@@ -65,7 +65,7 @@ const HeroSection: React.FC<HeroSectionProps> = ({ items }) => {
             </div>
             <p className="text-text-secondary text-sm md:text-base line-clamp-3 mb-6 animate-fade-in-up animation-delay-200">{activeItem.overview}</p>
             <div className="flex items-center gap-4 animate-fade-in-up animation-delay-400">
-                <Link to={`/play/${mediaType}/${activeItem.id}`} className="flex items-center gap-2 px-6 py-3 bg-accent-primary text-white font-semibold rounded-lg hover:bg-red-700 transition-colors shadow-lg">
+                <Link to={`/${mediaType}/${activeItem.id}?autoplay=true`} className="flex items-center gap-2 px-6 py-3 bg-accent-primary text-white font-semibold rounded-lg hover:bg-red-700 transition-colors shadow-lg">
                     <FaPlay />
                     <span>Play Now</span>
                 </Link>

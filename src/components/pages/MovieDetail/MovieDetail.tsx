@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { tmdbService } from '../../../services/tmdb';
 import type { MovieDetails } from '../../../types';
 import { TMDB_IMAGE_BASE_URL } from '../../../utils/constants';
@@ -11,10 +11,12 @@ import { FaPlay, FaPlus, FaCheck, FaStar, FaTimes } from 'react-icons/fa';
 
 const MovieDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
+  const autoplay = searchParams.get('autoplay') === 'true';
   const [movie, setMovie] = useState<MovieDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(autoplay);
   const { addToWatchlist, removeFromWatchlist, isInWatchlist } = useWatchlist();
   const lastBlurTime = useRef<number>(0);
 
@@ -48,10 +50,13 @@ const MovieDetail: React.FC = () => {
       if (!id) return;
       setLoading(true);
       setError(null);
-      setIsPlaying(false);
       try {
         const data = await tmdbService.getMovieDetails(id);
         setMovie(data);
+        // Start playback after data loads if autoplay is set
+        if (autoplay) {
+          setIsPlaying(true);
+        }
       } catch (err) {
         setError('Failed to fetch movie details.');
         console.error(err);
@@ -60,7 +65,7 @@ const MovieDetail: React.FC = () => {
       }
     };
     fetchMovie();
-  }, [id]);
+  }, [id, autoplay]);
 
   if (loading) {
     return (

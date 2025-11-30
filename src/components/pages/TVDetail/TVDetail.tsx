@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { tmdbService } from '../../../services/tmdb';
 import type { TVShowDetails, SeasonDetails } from '../../../types';
 import { TMDB_IMAGE_BASE_URL } from '../../../utils/constants';
@@ -11,6 +11,8 @@ import { FaPlay, FaPlus, FaCheck, FaStar, FaTimes, FaCheckCircle, FaChevronDown,
 
 const TVDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
+  const autoplay = searchParams.get('autoplay') === 'true';
   const [show, setShow] = useState<TVShowDetails | null>(null);
   const [selectedSeason, setSelectedSeason] = useState<number>(1);
   const [seasonDetails, setSeasonDetails] = useState<SeasonDetails | null>(null);
@@ -66,13 +68,16 @@ const TVDetail: React.FC = () => {
       if (!id) return;
       setLoading(true);
       setError(null);
-      setIsPlaying(false);
       try {
         const data = await tmdbService.getTVShowDetails(id);
         setShow(data);
         if (data.seasons && data.seasons.length > 0) {
           const initialSeason = data.seasons.find(s => s.season_number > 0)?.season_number || 1;
           setSelectedSeason(initialSeason);
+        }
+        // Start playback after data loads if autoplay is set
+        if (autoplay) {
+          setIsPlaying(true);
         }
       } catch (err) {
         setError('Failed to fetch show details.');
@@ -82,7 +87,7 @@ const TVDetail: React.FC = () => {
       }
     };
     fetchShow();
-  }, [id]);
+  }, [id, autoplay]);
 
   useEffect(() => {
     const fetchSeason = async () => {
