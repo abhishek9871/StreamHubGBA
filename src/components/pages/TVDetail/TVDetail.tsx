@@ -139,19 +139,13 @@ const TVDetail: React.FC = () => {
               referrerPolicy="origin"
             />
             
-            {/* Player Controls Overlay */}
-            <div className="absolute top-4 left-4 right-4 z-20 flex items-center justify-between">
-              <div className="text-white">
-                <span className="text-sm opacity-80">Now Playing:</span>
-                <h3 className="font-semibold">{show.name} - S{currentEpisode.season} E{currentEpisode.episode}</h3>
-              </div>
-              <button
-                onClick={() => setIsPlaying(false)}
-                className="p-3 rounded-full bg-surface/80 hover:bg-surface text-text-primary transition-colors"
-              >
-                <FaTimes size={18} />
-              </button>
-            </div>
+            {/* Close button overlay */}
+            <button
+              onClick={() => setIsPlaying(false)}
+              className="absolute top-4 right-4 z-20 p-3 rounded-full bg-surface/80 hover:bg-surface text-text-primary transition-colors"
+            >
+              <FaTimes size={18} />
+            </button>
           </>
         ) : (
           <>
@@ -239,7 +233,8 @@ const TVDetail: React.FC = () => {
               <select
                 value={selectedSeason}
                 onChange={(e) => setSelectedSeason(Number(e.target.value))}
-                className="bg-surface border border-surface-hover rounded-md px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-accent-primary"
+                className="bg-surface border border-surface-hover rounded-md px-4 py-2 pr-8 text-white focus:outline-none focus:ring-2 focus:ring-accent-primary appearance-none cursor-pointer"
+                style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='white'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.5rem center', backgroundSize: '1.25rem' }}
               >
                 {show.seasons.filter(s => s.season_number > 0).map(season => (
                   <option key={season.id} value={season.season_number}>
