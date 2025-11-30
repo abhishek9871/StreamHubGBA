@@ -20,21 +20,35 @@ const MovieDetail: React.FC = () => {
   const { addToWatchlist, removeFromWatchlist, isInWatchlist } = useWatchlist();
   const lastBlurTime = useRef<number>(0);
 
-  // Popup/Ad blocker - always active when component is mounted
+  // Popup/Ad blocker - aggressive protection
   useEffect(() => {
     const handleBlur = () => {
       const now = Date.now();
-      if (now - lastBlurTime.current > 500) {
+      // Short debounce (50ms) to prevent infinite loops but catch rapid popups
+      if (now - lastBlurTime.current > 50) {
         lastBlurTime.current = now;
-        setTimeout(() => window.focus(), 100);
+        // Immediate focus attempt
+        window.focus();
+        // Backup delayed focus attempts
+        setTimeout(() => window.focus(), 10);
+        setTimeout(() => window.focus(), 50);
       }
     };
 
     const handleVisibilityChange = () => {
       if (document.hidden) {
-        setTimeout(() => window.focus(), 100);
+        window.focus();
+        setTimeout(() => window.focus(), 10);
       }
     };
+
+    // Proactive focus keeper - runs while component is mounted
+    // Catches any popups that slip through event handlers
+    const focusInterval = setInterval(() => {
+      if (!document.hasFocus()) {
+        window.focus();
+      }
+    }, 100);
 
     window.addEventListener('blur', handleBlur);
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -42,6 +56,7 @@ const MovieDetail: React.FC = () => {
     return () => {
       window.removeEventListener('blur', handleBlur);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      clearInterval(focusInterval);
     };
   }, []);
 
