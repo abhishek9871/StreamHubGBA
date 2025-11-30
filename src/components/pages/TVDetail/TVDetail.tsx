@@ -38,8 +38,25 @@ const TVDetail: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Popup/Ad blocker - maximum aggression for click-triggered ads
+  // Popup/Ad blocker - maximum aggression for all devices including mobile
   useEffect(() => {
+    // Track opened popups to close them
+    const openedWindows: Window[] = [];
+    const originalOpen = window.open;
+    
+    // Intercept window.open calls to track and close popups
+    window.open = function(...args) {
+      const newWindow = originalOpen.apply(this, args);
+      if (newWindow) {
+        openedWindows.push(newWindow);
+        // Try to close immediately
+        try { newWindow.close(); } catch (e) { /* cross-origin */ }
+      }
+      // Refocus our window
+      window.focus();
+      return null; // Prevent the popup
+    };
+
     const handleBlur = () => {
       const now = Date.now();
       // Minimal debounce (20ms) - just enough to prevent true infinite loops
@@ -52,6 +69,8 @@ const TVDetail: React.FC = () => {
         setTimeout(() => window.focus(), 15);
         setTimeout(() => window.focus(), 30);
         setTimeout(() => window.focus(), 60);
+        // Try to close any tracked popups
+        openedWindows.forEach(w => { try { w.close(); } catch (e) {} });
       }
     };
 
@@ -62,6 +81,7 @@ const TVDetail: React.FC = () => {
         setTimeout(() => window.focus(), 0);
         setTimeout(() => window.focus(), 10);
         setTimeout(() => window.focus(), 30);
+        openedWindows.forEach(w => { try { w.close(); } catch (e) {} });
       }
     };
 
@@ -79,6 +99,7 @@ const TVDetail: React.FC = () => {
       window.removeEventListener('blur', handleBlur);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       clearInterval(focusInterval);
+      window.open = originalOpen; // Restore original
     };
   }, []);
 

@@ -18,27 +18,57 @@ const Player: React.FC = () => {
   const season = parseInt(searchParams.get('season') || '1', 10);
   const episode = parseInt(searchParams.get('episode') || '1', 10);
 
-  // Popup/Ad detection: When window loses focus (popup opened), refocus immediately
+  // Popup/Ad blocker - maximum aggression for all devices including mobile
   useEffect(() => {
+    // Track opened popups to close them
+    const openedWindows: Window[] = [];
+    const originalOpen = window.open;
+    
+    // Intercept window.open calls to track and close popups
+    window.open = function(...args) {
+      const newWindow = originalOpen.apply(this, args);
+      if (newWindow) {
+        openedWindows.push(newWindow);
+        // Try to close immediately
+        try { newWindow.close(); } catch (e) { /* cross-origin */ }
+      }
+      // Refocus our window
+      window.focus();
+      return null; // Prevent the popup
+    };
+
     const handleBlur = () => {
       const now = Date.now();
-      // Debounce: only count as ad if blur happens within interaction context
-      if (now - lastBlurTime.current > 500) {
+      if (now - lastBlurTime.current > 20) {
         lastBlurTime.current = now;
-        
-        // Immediately try to refocus our window
-        setTimeout(() => {
-          window.focus();
-        }, 100);
+        // Rapid-fire focus attempts
+        window.focus();
+        setTimeout(() => window.focus(), 0);
+        setTimeout(() => window.focus(), 5);
+        setTimeout(() => window.focus(), 15);
+        setTimeout(() => window.focus(), 30);
+        setTimeout(() => window.focus(), 60);
+        // Try to close any tracked popups
+        openedWindows.forEach(w => { try { w.close(); } catch (e) {} });
       }
     };
 
     const handleVisibilityChange = () => {
-      // If tab becomes hidden due to popup, try to regain focus
       if (document.hidden) {
-        setTimeout(() => window.focus(), 100);
+        window.focus();
+        setTimeout(() => window.focus(), 0);
+        setTimeout(() => window.focus(), 10);
+        setTimeout(() => window.focus(), 30);
+        openedWindows.forEach(w => { try { w.close(); } catch (e) {} });
       }
     };
+
+    // Fast proactive focus keeper (50ms)
+    const focusInterval = setInterval(() => {
+      if (!document.hasFocus()) {
+        window.focus();
+      }
+    }, 50);
 
     window.addEventListener('blur', handleBlur);
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -46,6 +76,8 @@ const Player: React.FC = () => {
     return () => {
       window.removeEventListener('blur', handleBlur);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      clearInterval(focusInterval);
+      window.open = originalOpen; // Restore original
     };
   }, []);
 
