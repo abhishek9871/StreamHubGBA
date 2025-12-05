@@ -53,22 +53,22 @@ export class ClickShield {
     desktop: {
       pageLoadGracePeriod: 5000,      // 5 seconds after page loads
       iframeLoadGracePeriod: 5000,    // 5 seconds after iframe loads
-      minTimeBetweenClicks: 450,      // Prevent double-click hijacking
-      afterPopupReblock: 45000,       // 45 seconds after popup detected
-      firstClicksToBlock: 6,          // Block first N clicks
-      trustIncrement: 6,              // Increase trust per clean click
-      trustDecrement: 75,             // Decrease trust on popup
-      maxTrustForBlocking: 60,        // Below this = aggressive blocking
+      minTimeBetweenClicks: 500,      // Prevent double-click hijacking
+      afterPopupReblock: 60000,       // 60 seconds after popup detected
+      firstClicksToBlock: 8,          // Block first N clicks
+      trustIncrement: 4,              // Increase trust per clean click
+      trustDecrement: 80,             // Decrease trust on popup
+      maxTrustForBlocking: 70,        // Below this = aggressive blocking
     },
     mobile: {
       pageLoadGracePeriod: 7000,      // 7 seconds (mobile ads more aggressive)
       iframeLoadGracePeriod: 7000,    // 7 seconds
-      minTimeBetweenClicks: 600,      // Slower touch interactions
-      afterPopupReblock: 60000,       // 60 seconds (mobile popups persist longer)
-      firstClicksToBlock: 8,          // Block first 8 touches (mobile ads worse)
-      trustIncrement: 4,              // Slower trust building
-      trustDecrement: 85,             // Larger trust loss
-      maxTrustForBlocking: 70,        // More cautious on mobile
+      minTimeBetweenClicks: 700,      // Slower touch interactions
+      afterPopupReblock: 75000,       // 75 seconds (mobile popups persist longer)
+      firstClicksToBlock: 9,          // Block first 9 touches (mobile ads worse)
+      trustIncrement: 3,              // Slower trust building
+      trustDecrement: 90,             // Larger trust loss
+      maxTrustForBlocking: 80,        // More cautious on mobile
     },
   };
 

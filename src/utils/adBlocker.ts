@@ -37,6 +37,7 @@ interface AdBlockerState {
   windowOpened: number;
   lastWindowCheckTime: number;
   lastBlockedUrl?: string;
+  lastDecodedUrl?: string;
 }
 
 const defaultConfig: AdBlockerConfig = {
@@ -85,6 +86,13 @@ const isWhitelistedVideoURL = (url: string): boolean => {
 const isSuspiciousURL = (url: string): boolean => {
   if (!url || url === 'about:blank' || url === '') return true;
 
+  let decoded = url;
+  try {
+    decoded = decodeURIComponent(url);
+  } catch {
+    // ignore decode errors
+  }
+
   const suspiciousPatterns = [
     /ads?[_\-\.]/i,
     /popup/i,
@@ -108,6 +116,7 @@ const isSuspiciousURL = (url: string): boolean => {
     /zrlqm\.com/i,
     /lizalive\.com/i,
     /prmtracking\.com/i,
+    /tracking\.prmtracking\.com/i,
     /opera\.com/i,
     /features\/spotify/i,
     /partner.*opera/i,
@@ -151,7 +160,7 @@ const isSuspiciousURL = (url: string): boolean => {
     /os_version=/i,
   ];
 
-  if (suspiciousPatterns.some(pattern => pattern.test(url))) {
+  if (suspiciousPatterns.some(pattern => pattern.test(url) || pattern.test(decoded))) {
     return true;
   }
 
@@ -167,8 +176,16 @@ const isSuspiciousURL = (url: string): boolean => {
  * URLs that should trigger immediate paranoia and hard blocking
  */
 const isParanoiaURL = (url: string): boolean => {
+  let decoded = url;
+  try {
+    decoded = decodeURIComponent(url);
+  } catch {
+    // ignore
+  }
+
   const paranoiaPatterns = [
     /prmtracking\.com/i,
+    /tracking\.prmtracking\.com/i,
     /adcash/i,
     /voluum/i,
     /afu\.php/i,
@@ -185,7 +202,7 @@ const isParanoiaURL = (url: string): boolean => {
     /m\.88funinr\.com/i,
   ];
 
-  return paranoiaPatterns.some(p => p.test(url));
+  return paranoiaPatterns.some(p => p.test(url) || p.test(decoded));
 };
 
 /**
