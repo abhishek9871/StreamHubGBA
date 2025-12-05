@@ -33,6 +33,9 @@ interface AdBlockerState {
   isMobile: boolean;
   clickCount: number;
   lastClickTarget: EventTarget | null;
+  popupDetectedCallback?: () => void;
+  windowOpened: number;
+  lastWindowCheckTime: number;
 }
 
 const defaultConfig: AdBlockerConfig = {
@@ -96,10 +99,23 @@ const isSuspiciousURL = (url: string): boolean => {
     /betting/i,
     /casino/i,
     /rajbets/i,
+    /rajbet/i,
     /download/i,
     /setup\.exe/i,
     /\.apk$/i,
     /\.exe$/i,
+    /\.msi$/i,
+    /opera.*setup/i,
+    /opera.*download/i,
+    /browser.*setup/i,
+    /install.*browser/i,
+    /get.*opera/i,
+    /1xbet/i,
+    /betway/i,
+    /parimatch/i,
+    /\.top$/i,
+    /\.xyz$/i,
+    /\.club$/i,
   ];
 
   if (suspiciousPatterns.some(pattern => pattern.test(url))) {
@@ -129,6 +145,9 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
     isMobile: detectMobile(),
     clickCount: 0,
     lastClickTarget: null,
+    popupDetectedCallback: config.onAdBlocked,
+    windowOpened: 0,
+    lastWindowCheckTime: Date.now(),
   };
 
   // Timing configurations - EXTREME mode is most aggressive
@@ -384,12 +403,32 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
   };
 
   /**
-   * Blur/focus detection
+   * Window count monitoring - detects if new windows/popups opened
+   */
+  const checkWindowCount = () => {
+    const currentWindowCount = window.length;
+    if (currentWindowCount > state.initialWindowCount) {
+      console.log('[AdBlocker] 🪟 New window detected!');
+      state.blockedCount++;
+      state.initialWindowCount = currentWindowCount;
+      if (mergedConfig.onAdBlocked) mergedConfig.onAdBlocked();
+    }
+  };
+
+  /**
+   * Blur/focus detection - ENHANCED with popup callback
    */
   const handleBlur = () => {
     const now = Date.now();
-    if (now - state.lastInteractionTime < timing.suspiciousWindow) {
-      console.log('[AdBlocker] 👁️ Window blur detected - refocusing');
+    const timeSinceInteraction = now - state.lastInteractionTime;
+
+    // CRITICAL: If blur happens within suspicious window, it's likely a popup
+    if (timeSinceInteraction < timing.suspiciousWindow) {
+      console.log('[AdBlocker] 👁️ Window blur detected - POPUP LIKELY - refocusing');
+
+      // Check window count
+      checkWindowCount();
+
       setTimeout(() => {
         window.focus();
         state.blockedCount++;
@@ -399,19 +438,38 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
   };
 
   /**
-   * Visibility change detection
+   * Visibility change detection - ENHANCED
    */
   const handleVisibilityChange = () => {
     if (document.hidden) {
       const timeSinceInteraction = Date.now() - state.lastInteractionTime;
       if (timeSinceInteraction < timing.suspiciousWindow) {
-        console.log('[AdBlocker] 👁️ Tab hidden after interaction - refocusing');
+        console.log('[AdBlocker] 👁️ Tab hidden after interaction - POPUP DETECTED - refocusing');
+
+        // Check window count
+        checkWindowCount();
+
         setTimeout(() => {
           window.focus();
           state.blockedCount++;
           if (mergedConfig.onAdBlocked) mergedConfig.onAdBlocked();
         }, 10);
       }
+    }
+  };
+
+  /**
+   * beforeunload detection - prevent iframe navigation hijacking
+   */
+  const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+    const now = Date.now();
+    const timeSinceInteraction = now - state.lastInteractionTime;
+
+    // If unload happens shortly after interaction, it might be ad redirect
+    if (timeSinceInteraction < timing.suspiciousWindow) {
+      console.log('[AdBlocker] ⚠️ Suspicious beforeunload detected');
+      state.blockedCount++;
+      if (mergedConfig.onAdBlocked) mergedConfig.onAdBlocked();
     }
   };
 
@@ -456,6 +514,9 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
     window.addEventListener('blur', handleBlur, true);
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
+    // beforeunload detection
+    window.addEventListener('beforeunload', handleBeforeUnload, true);
+
     // Sanitize DOM immediately and periodically
     if (document.body) {
       sanitizeDOM();
@@ -467,7 +528,7 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
       });
     }
 
-    // Proactive focus keeper
+    // Proactive focus keeper + window count monitor
     focusInterval = setInterval(() => {
       if (!document.hasFocus()) {
         const timeSinceInteraction = Date.now() - state.lastInteractionTime;
@@ -475,7 +536,15 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
           window.focus();
         }
       }
+
+      // Check window count periodically
+      checkWindowCount();
     }, timing.interval);
+
+    // Periodic window count check (more frequent for extreme mode)
+    windowCheckInterval = setInterval(() => {
+      checkWindowCount();
+    }, timing.interval * 5);
 
     console.log('[AdBlocker] ✅ Ultra-aggressive protection ACTIVE');
   };
@@ -492,6 +561,7 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
     document.removeEventListener('contextmenu', handleContextMenu, true);
     window.removeEventListener('blur', handleBlur, true);
     document.removeEventListener('visibilitychange', handleVisibilityChange);
+    window.removeEventListener('beforeunload', handleBeforeUnload, true);
 
     if (state.isMobile) {
       document.removeEventListener('touchstart', handleClick as any, true);
@@ -501,6 +571,11 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
     if (focusInterval) {
       clearInterval(focusInterval);
       focusInterval = null;
+    }
+
+    if (windowCheckInterval) {
+      clearInterval(windowCheckInterval);
+      windowCheckInterval = null;
     }
 
     if (sanitizeInterval) {
