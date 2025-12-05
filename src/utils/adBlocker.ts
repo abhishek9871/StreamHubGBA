@@ -587,21 +587,21 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
 
   /**
    * LAYER 9: Location navigation interception
+   * Note: Only intercepts location.href as location.replace/assign are read-only
+   * Other layers (click, window.open) provide comprehensive coverage
    */
   const interceptLocationNavigation = () => {
-    const locationProperties = ['href', 'pathname', 'search', 'hash'];
+    // Only intercept location.href which is the most common navigation method
+    const descriptor = Object.getOwnPropertyDescriptor(Location.prototype, 'href');
 
-    locationProperties.forEach(prop => {
-      const descriptor = Object.getOwnPropertyDescriptor(Location.prototype, prop);
-      if (descriptor && descriptor.set) {
-        locationDescriptors[prop] = descriptor;
+    if (descriptor && descriptor.set) {
+      locationDescriptors['href'] = descriptor;
 
-        Object.defineProperty(window.location, prop, {
+      try {
+        Object.defineProperty(window.location, 'href', {
           set: function(value: any) {
-            const newUrl = prop === 'href' ? value : window.location.origin + value;
-
-            if (isBlockedNavigation(newUrl)) {
-              console.log('[AdBlocker] Blocked location navigation:', newUrl.substring(0, 50));
+            if (isBlockedNavigation(value)) {
+              console.log('[AdBlocker] Blocked location.href navigation:', value.substring(0, 50));
               state.blockedCount++;
               if (mergedConfig.onAdBlocked) {
                 mergedConfig.onAdBlocked();
@@ -618,36 +618,12 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
           configurable: true,
           enumerable: true,
         });
+      } catch (error) {
+        // If we can't override location.href, log but continue
+        // Other layers will still provide protection
+        console.log('[AdBlocker] Could not override location.href, relying on other layers');
       }
-    });
-
-    // Intercept location.replace and location.assign
-    const originalReplace = window.location.replace;
-    const originalAssign = window.location.assign;
-
-    window.location.replace = function(url: string) {
-      if (isBlockedNavigation(url)) {
-        console.log('[AdBlocker] Blocked location.replace:', url.substring(0, 50));
-        state.blockedCount++;
-        if (mergedConfig.onAdBlocked) {
-          mergedConfig.onAdBlocked();
-        }
-        return;
-      }
-      return originalReplace.call(this, url);
-    };
-
-    window.location.assign = function(url: string) {
-      if (isBlockedNavigation(url)) {
-        console.log('[AdBlocker] Blocked location.assign:', url.substring(0, 50));
-        state.blockedCount++;
-        if (mergedConfig.onAdBlocked) {
-          mergedConfig.onAdBlocked();
-        }
-        return;
-      }
-      return originalAssign.call(this, url);
-    };
+    }
   };
 
   /**
