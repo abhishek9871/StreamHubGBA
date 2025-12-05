@@ -63,6 +63,23 @@ const Player: React.FC = () => {
     }
   }, [isMobile]);
 
+  // Listen to global ad blocker events (from adBlocker.ts)
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail as { reason?: string; url?: string } | undefined;
+
+      handlePopupDetected();
+
+      if (clickShieldRef.current) {
+        const highRisk = detail?.reason?.includes('paranoia') || (detail?.url && /opera|adcash|afu|prmtracking|88funinr|zrlqm/i.test(detail.url));
+        clickShieldRef.current.enterParanoia(highRisk ? 60000 : undefined);
+      }
+    };
+
+    window.addEventListener('adblocker-popup', handler as EventListener);
+    return () => window.removeEventListener('adblocker-popup', handler as EventListener);
+  }, []);
+
   // Handle popup detection from global ad blocker
   const handlePopupDetected = () => {
     console.log('[Player] 🚨 POPUP DETECTED - Resetting protection');
@@ -263,6 +280,13 @@ const Player: React.FC = () => {
           allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
           allowFullScreen
           referrerPolicy="origin"
+          onLoad={() => {
+            if (clickShieldRef.current) {
+              clickShieldRef.current.onIframeLoad();
+            }
+            setShieldActive(true);
+            setShowShieldUI(true);
+          }}
           style={{
             pointerEvents: shieldActive ? 'none' : 'auto',
           }}

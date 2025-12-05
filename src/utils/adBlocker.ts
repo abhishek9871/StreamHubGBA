@@ -36,6 +36,7 @@ interface AdBlockerState {
   popupDetectedCallback?: () => void;
   windowOpened: number;
   lastWindowCheckTime: number;
+  lastBlockedUrl?: string;
 }
 
 const defaultConfig: AdBlockerConfig = {
@@ -96,17 +97,44 @@ const isSuspiciousURL = (url: string): boolean => {
     /banner/i,
     /promo/i,
     /affiliate/i,
+    /adcash/i,
+    /voluum/i,
     /betting/i,
     /casino/i,
     /rajbets/i,
     /rajbet/i,
+    /bojel\.com/i,
+    /afu\.php/i,
+    /zrlqm\.com/i,
+    /lizalive\.com/i,
+    /prmtracking\.com/i,
+    /opera\.com/i,
+    /features\/spotify/i,
+    /partner.*opera/i,
+    /offer_id=\d+/i,
+    /sub\d=/i,
     /download/i,
     /setup\.exe/i,
     /\.apk$/i,
     /\.exe$/i,
     /\.msi$/i,
-    /opera.*setup/i,
+    /\.dmg$/i,
+    /\.pkg$/i,
+    /\.zip$/i,
+    /\.rar$/i,
+    /\.7z$/i,
+    /\.gz$/i,
+    /opera\.com\/partner/i,
+    /opera\.com\/gx/i,
+    /opera\.com\/features/i,
     /opera.*download/i,
+    /opera.*setup/i,
+    /utm_campaign=449798220/i,
+    /utm_source=adcash/i,
+    /utm_medium=pb/i,
+    /utm_medium=partner/i,
+    /m\.88funinr\.com/i,
+    /88funinr\.com/i,
     /browser.*setup/i,
     /install.*browser/i,
     /get.*opera/i,
@@ -116,6 +144,11 @@ const isSuspiciousURL = (url: string): boolean => {
     /\.top$/i,
     /\.xyz$/i,
     /\.club$/i,
+    /zoneid=\d+/i,
+    /ymid=/i,
+    /rid=/i,
+    /rhd=/i,
+    /os_version=/i,
   ];
 
   if (suspiciousPatterns.some(pattern => pattern.test(url))) {
@@ -128,6 +161,31 @@ const isSuspiciousURL = (url: string): boolean => {
   }
 
   return false;
+};
+
+/**
+ * URLs that should trigger immediate paranoia and hard blocking
+ */
+const isParanoiaURL = (url: string): boolean => {
+  const paranoiaPatterns = [
+    /prmtracking\.com/i,
+    /adcash/i,
+    /voluum/i,
+    /afu\.php/i,
+    /opera\.com\/partner/i,
+    /opera\.com\/features/i,
+    /opera\.com\/gx/i,
+    /opera\.com/i,
+    /opera.*download/i,
+    /opera.*setup/i,
+    /lizalive\.com/i,
+    /zrlqm\.com/i,
+    /bojel\.com/i,
+    /88funinr\.com/i,
+    /m\.88funinr\.com/i,
+  ];
+
+  return paranoiaPatterns.some(p => p.test(url));
 };
 
 /**
@@ -150,12 +208,32 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
     lastWindowCheckTime: Date.now(),
   };
 
+  /**
+   * Centralized blocker notification to fan-out to UI and click shield
+   */
+  const reportBlock = (reason: string, url?: string) => {
+    state.blockedCount++;
+    state.lastBlockedUrl = url;
+    if (mergedConfig.onAdBlocked) mergedConfig.onAdBlocked();
+
+    // Broadcast so Player/click shield can respond immediately
+    try {
+      window.dispatchEvent(
+        new CustomEvent('adblocker-popup', {
+          detail: { reason, url },
+        })
+      );
+    } catch {
+      // Ignore if CustomEvent not available
+    }
+  };
+
   // Timing configurations - EXTREME mode is most aggressive
   const timings = {
     low: { debounce: 500, interval: 300, suspiciousWindow: 1000 },
     medium: { debounce: 200, interval: 150, suspiciousWindow: 500 },
     high: { debounce: 100, interval: 50, suspiciousWindow: 300 },
-    extreme: { debounce: 10, interval: 20, suspiciousWindow: 200 },
+    extreme: { debounce: 10, interval: 20, suspiciousWindow: 350 },
   };
 
   const timing = timings[mergedConfig.aggressiveness];
@@ -182,16 +260,24 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
       // RULE 1: Block empty/blank popups (always suspicious)
       if (!urlString || urlString === 'about:blank') {
         console.log('[AdBlocker] ❌ Blocked empty popup');
-        state.blockedCount++;
-        if (mergedConfig.onAdBlocked) mergedConfig.onAdBlocked();
+        reportBlock('empty-popup', urlString);
         return createFakeWindow();
       }
 
       // RULE 2: Block suspicious URLs (ads, betting sites, downloads)
       if (isSuspiciousURL(urlString)) {
         console.log('[AdBlocker] ❌ Blocked suspicious popup:', urlString.substring(0, 60));
-        state.blockedCount++;
-        if (mergedConfig.onAdBlocked) mergedConfig.onAdBlocked();
+        reportBlock('suspicious-url', urlString);
+        if (isParanoiaURL(urlString)) {
+          reportBlock('paranoia-url', urlString);
+        }
+        return createFakeWindow();
+      }
+
+      // RULE 2b: Paranoia-only patterns (block even if not caught above)
+      if (isParanoiaURL(urlString)) {
+        console.log('[AdBlocker] ❌ Blocked paranoia popup:', urlString.substring(0, 60));
+        reportBlock('paranoia-url', urlString);
         return createFakeWindow();
       }
 
@@ -203,8 +289,7 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
         // Only allow whitelisted video domains during this window
         if (!isWhitelistedVideoURL(urlString)) {
           console.log('[AdBlocker] ⏱️ Blocked timing attack popup:', urlString.substring(0, 60));
-          state.blockedCount++;
-          if (mergedConfig.onAdBlocked) mergedConfig.onAdBlocked();
+          reportBlock('timing-attack', urlString);
           return createFakeWindow();
         }
       }
@@ -218,15 +303,16 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
         // Block if not same domain and not whitelisted video source
         if (targetHost !== currentHost && !isWhitelistedVideoURL(urlString)) {
           console.log('[AdBlocker] 🌐 Blocked external popup:', urlString.substring(0, 60));
-          state.blockedCount++;
-          if (mergedConfig.onAdBlocked) mergedConfig.onAdBlocked();
+          reportBlock('external-popup', urlString);
+          if (isParanoiaURL(urlString)) {
+            reportBlock('paranoia-url', urlString);
+          }
           return createFakeWindow();
         }
       } catch (e) {
         // Invalid URL - block it
         console.log('[AdBlocker] ⚠️ Blocked invalid URL popup');
-        state.blockedCount++;
-        if (mergedConfig.onAdBlocked) mergedConfig.onAdBlocked();
+        reportBlock('invalid-url');
         return createFakeWindow();
       }
 
@@ -280,8 +366,7 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
-        state.blockedCount++;
-        if (mergedConfig.onAdBlocked) mergedConfig.onAdBlocked();
+        reportBlock('download-attribute', href);
         return;
       }
 
@@ -291,8 +376,10 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
-        state.blockedCount++;
-        if (mergedConfig.onAdBlocked) mergedConfig.onAdBlocked();
+        reportBlock('suspicious-link', href);
+        if (isParanoiaURL(href)) {
+          reportBlock('paranoia-link', href);
+        }
         return;
       }
 
@@ -303,8 +390,7 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
           event.preventDefault();
           event.stopPropagation();
           event.stopImmediatePropagation();
-          state.blockedCount++;
-          if (mergedConfig.onAdBlocked) mergedConfig.onAdBlocked();
+          reportBlock('target-blank', href);
           return;
         }
       }
@@ -315,8 +401,7 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
-        state.blockedCount++;
-        if (mergedConfig.onAdBlocked) mergedConfig.onAdBlocked();
+        reportBlock('javascript-protocol', href);
         return;
       }
     }
@@ -340,8 +425,10 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
-        state.blockedCount++;
-        if (mergedConfig.onAdBlocked) mergedConfig.onAdBlocked();
+        reportBlock('auxclick', href);
+        if (isParanoiaURL(href)) {
+          reportBlock('paranoia-link', href);
+        }
       }
     }
   };
@@ -357,7 +444,7 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
       const href = link.getAttribute('href') || '';
       if (isSuspiciousURL(href)) {
         event.preventDefault();
-        state.blockedCount++;
+        reportBlock('contextmenu', href);
       }
     }
   };
@@ -395,6 +482,22 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
       }
     });
 
+    // Strip href entirely for obviously malicious targets
+    document.querySelectorAll('a[href]').forEach(link => {
+      const href = link.getAttribute('href') || '';
+      if (isSuspiciousURL(href)) {
+        link.removeAttribute('href');
+        link.removeAttribute('download');
+        console.log('[AdBlocker] 🧹 Removed malicious href');
+        reportBlock('sanitize-href', href);
+      } else if (isParanoiaURL(href)) {
+        link.removeAttribute('href');
+        link.removeAttribute('download');
+        console.log('[AdBlocker] 🧹 Removed paranoia href');
+        reportBlock('paranoia-href', href);
+      }
+    });
+
     // Remove meta refresh
     document.querySelectorAll('meta[http-equiv="refresh"]').forEach(meta => {
       meta.remove();
@@ -409,9 +512,8 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
     const currentWindowCount = window.length;
     if (currentWindowCount > state.initialWindowCount) {
       console.log('[AdBlocker] 🪟 New window detected!');
-      state.blockedCount++;
       state.initialWindowCount = currentWindowCount;
-      if (mergedConfig.onAdBlocked) mergedConfig.onAdBlocked();
+      reportBlock('window-count');
     }
   };
 
@@ -431,8 +533,7 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
 
       setTimeout(() => {
         window.focus();
-        state.blockedCount++;
-        if (mergedConfig.onAdBlocked) mergedConfig.onAdBlocked();
+        reportBlock('blur-popup');
       }, 10);
     }
   };
@@ -451,8 +552,7 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
 
         setTimeout(() => {
           window.focus();
-          state.blockedCount++;
-          if (mergedConfig.onAdBlocked) mergedConfig.onAdBlocked();
+          reportBlock('visibility-popup');
         }, 10);
       }
     }
@@ -468,8 +568,7 @@ export function createAdBlocker(config: Partial<AdBlockerConfig> = {}) {
     // If unload happens shortly after interaction, it might be ad redirect
     if (timeSinceInteraction < timing.suspiciousWindow) {
       console.log('[AdBlocker] ⚠️ Suspicious beforeunload detected');
-      state.blockedCount++;
-      if (mergedConfig.onAdBlocked) mergedConfig.onAdBlocked();
+      reportBlock('beforeunload');
     }
   };
 

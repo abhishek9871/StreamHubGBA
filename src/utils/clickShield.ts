@@ -26,6 +26,7 @@ export interface ClickShieldState {
   iframeLoadTime: number;
   lastClickTime: number;
   lastPopupDetectedTime: number;
+  paranoiaUntil: number;
 
   // Click tracking
   totalClicks: number;
@@ -52,22 +53,22 @@ export class ClickShield {
     desktop: {
       pageLoadGracePeriod: 5000,      // 5 seconds after page loads
       iframeLoadGracePeriod: 5000,    // 5 seconds after iframe loads
-      minTimeBetweenClicks: 300,      // Prevent double-click hijacking
-      afterPopupReblock: 10000,       // 10 seconds after popup detected
-      firstClicksToBlock: 3,          // Block first N clicks
-      trustIncrement: 10,             // Increase trust per clean click
-      trustDecrement: 50,             // Decrease trust on popup
-      maxTrustForBlocking: 30,        // Below this = aggressive blocking
+      minTimeBetweenClicks: 450,      // Prevent double-click hijacking
+      afterPopupReblock: 45000,       // 45 seconds after popup detected
+      firstClicksToBlock: 6,          // Block first N clicks
+      trustIncrement: 6,              // Increase trust per clean click
+      trustDecrement: 75,             // Decrease trust on popup
+      maxTrustForBlocking: 60,        // Below this = aggressive blocking
     },
     mobile: {
       pageLoadGracePeriod: 7000,      // 7 seconds (mobile ads more aggressive)
       iframeLoadGracePeriod: 7000,    // 7 seconds
-      minTimeBetweenClicks: 400,      // Slower touch interactions
-      afterPopupReblock: 15000,       // 15 seconds (mobile popups persist longer)
-      firstClicksToBlock: 5,          // Block first 5 touches (mobile ads worse)
-      trustIncrement: 8,              // Slower trust building
-      trustDecrement: 60,             // Larger trust loss
-      maxTrustForBlocking: 40,        // More cautious on mobile
+      minTimeBetweenClicks: 600,      // Slower touch interactions
+      afterPopupReblock: 60000,       // 60 seconds (mobile popups persist longer)
+      firstClicksToBlock: 8,          // Block first 8 touches (mobile ads worse)
+      trustIncrement: 4,              // Slower trust building
+      trustDecrement: 85,             // Larger trust loss
+      maxTrustForBlocking: 70,        // More cautious on mobile
     },
   };
 
@@ -80,6 +81,7 @@ export class ClickShield {
       iframeLoadTime: now,
       lastClickTime: 0,
       lastPopupDetectedTime: 0,
+      paranoiaUntil: 0,
       totalClicks: 0,
       blockedClicks: 0,
       allowedClicks: 0,
@@ -113,6 +115,10 @@ export class ClickShield {
     const now = Date.now();
     this.state.lastPopupDetectedTime = now;
 
+    // Keep shield in paranoia mode for extended period
+    const timings = this.config.isMobile ? this.TIMINGS.mobile : this.TIMINGS.desktop;
+    this.state.paranoiaUntil = now + timings.afterPopupReblock;
+
     // RESET TRUST - popup means we're under attack
     const oldTrust = this.state.trustLevel;
     this.state.trustLevel = 0;
@@ -132,6 +138,33 @@ export class ClickShield {
 
     if (this.config.onTrustLevelChanged) {
       this.config.onTrustLevelChanged(0);
+    }
+  }
+
+  /**
+   * Force paranoia mode externally (e.g., adBlocker detects a bad URL)
+   */
+  public enterParanoia(durationMs?: number): void {
+    const now = Date.now();
+    const timings = this.config.isMobile ? this.TIMINGS.mobile : this.TIMINGS.desktop;
+
+    const effectiveDuration = durationMs ?? timings.afterPopupReblock * 1.5;
+
+    this.state.lastPopupDetectedTime = now;
+    this.state.paranoiaUntil = now + effectiveDuration;
+    const oldTrust = this.state.trustLevel;
+    this.state.trustLevel = 0;
+    this.state.isShieldActive = true;
+
+    console.log('[ClickShield] 🚧 Paranoia mode engaged', {
+      oldTrust,
+      newTrust: 0,
+      until: this.state.paranoiaUntil,
+      durationMs: effectiveDuration,
+    });
+
+    if (this.config.onTrustLevelChanged) {
+      this.config.onTrustLevelChanged(this.state.trustLevel);
     }
   }
 
