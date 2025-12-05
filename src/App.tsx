@@ -18,16 +18,16 @@ const WatchlistPage = lazy(() => import('./components/pages/WatchlistPage'));
 const SettingsPage = lazy(() => import('./components/pages/Settings/Settings'));
 
 const App: React.FC = () => {
-  // Global ad blocker - active from app start to prevent race conditions
-  // This ensures protection is ready BEFORE any iframe loads
+  // ULTRA-AGGRESSIVE ad blocker - blocks ALL popups including first-click hijacking
+  // Active from app start to prevent race conditions
   useEffect(() => {
     const adBlocker = createAdBlocker({
       enabled: true,
-      aggressiveness: 'high',
+      aggressiveness: 'extreme', // MAXIMUM protection
     });
-    
+
     adBlocker.start();
-    
+
     // Keep ad blocker running for entire app lifecycle
     return () => {
       adBlocker.cleanup();
