@@ -34,6 +34,18 @@ const TVDetail: React.FC = () => {
 
   // Ad blocker is now handled globally in App.tsx
 
+  // Pre-warm the scraper backend when page loads
+  // This ensures the backend is awake before user clicks Play
+  useEffect(() => {
+    const scraperUrl = import.meta.env.VITE_SCRAPER_URL || 'http://localhost:3001/api/extract';
+    const healthUrl = scraperUrl.replace('/api/extract', '/health');
+    
+    // Fire and forget - just wake up the backend
+    fetch(healthUrl, { method: 'GET' })
+      .then(() => console.log('[TVDetail] Backend pre-warmed'))
+      .catch(() => console.log('[TVDetail] Backend pre-warm failed (may be local dev)'));
+  }, []);
+
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
