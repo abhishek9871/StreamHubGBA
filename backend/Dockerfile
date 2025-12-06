@@ -37,8 +37,11 @@ RUN npx playwright install chromium
 # Copy source
 COPY . .
 
-# Expose port
-EXPOSE 3001
+# Expose port (Render uses 10000)
+EXPOSE 10000
+
+# Set default port for Render
+ENV PORT=10000
 
 # Start server
 CMD ["npm", "start"]

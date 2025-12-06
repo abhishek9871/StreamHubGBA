@@ -1,11 +1,10 @@
 services:
   - type: web
     name: flixnest-scraper
-    env: node
+    runtime: docker
     region: oregon
     plan: free
-    buildCommand: npm install && npx playwright install chromium --with-deps
-    startCommand: npm start
+    dockerfilePath: ./Dockerfile
     envVars:
       - key: PORT
         value: 10000
