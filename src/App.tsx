@@ -8,6 +8,10 @@ import Loader from './components/common/Loader';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import ScrollToTop from './components/common/ScrollToTop';
 
+// Import stream debugger for console access during development
+// Use: window.streamDebugger.testMovie('278') in browser console
+import './utils/streamDebugger';
+
 // Lazy load page components for performance optimization
 const Home = lazy(() => import('./components/pages/Home/Home'));
 const MovieDetail = lazy(() => import('./components/pages/MovieDetail/MovieDetail'));

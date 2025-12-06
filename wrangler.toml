@@ -1,0 +1,31 @@
+# FlixNest Same-Origin Proxy Worker
+# 
+# This worker proxies vidsrc.cc content to make it same-origin,
+# enabling m3u8 extraction via fetch interception.
+#
+# Deploy: npx wrangler deploy
+# Dev:    npx wrangler dev
+
+name = "flixnest-proxy"
+main = "src/worker/proxy.ts"
+compatibility_date = "2024-12-01"
+
+# Account ID (get from Cloudflare dashboard)
+# account_id = "your-account-id"
+
+[build]
+command = ""
+
+# Development settings
+[dev]
+port = 8787
+local_protocol = "http"
+
+# Production environment
+[env.production]
+name = "flixnest-proxy-prod"
+
+# Routes (optional - for custom domain)
+# [[routes]]
+# pattern = "proxy.yourdomain.com/*"
+# zone_name = "yourdomain.com"

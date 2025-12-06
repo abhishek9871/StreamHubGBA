@@ -8,9 +8,14 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+backend/node_modules
 dist
 dist-ssr
 *.local
+
+# Playwright
+backend/playwright-report/
+backend/test-results/
 
 # Editor directories and files
 .vscode/*

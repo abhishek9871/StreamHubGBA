@@ -2,11 +2,14 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { tmdbService } from '../../../services/tmdb';
 import type { TVShowDetails, SeasonDetails } from '../../../types';
+import type { ExtractedStream } from '../../../types/stream';
 import { TMDB_IMAGE_BASE_URL } from '../../../utils/constants';
 import { useWatchlist } from '../../../context/WatchlistContext';
 import { useWatchedEpisodes } from '../../../context/WatchedEpisodesContext';
+import { streamExtractor } from '../../../services/streamExtractor';
 import Loader from '../../common/Loader';
 import ContentCarousel from '../Home/ContentCarousel';
+import { NativePlayer } from '../../common/NativePlayer';
 import { FaPlay, FaPlus, FaCheck, FaStar, FaTimes, FaCheckCircle, FaChevronDown, FaChevronLeft, FaChevronRight } from 'react-icons/fa';
 
 const TVDetail: React.FC = () => {
@@ -22,6 +25,9 @@ const TVDetail: React.FC = () => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentEpisode, setCurrentEpisode] = useState<{ season: number; episode: number }>({ season: 1, episode: 1 });
   const [isSeasonDropdownOpen, setIsSeasonDropdownOpen] = useState(false);
+  const [extractedStream, setExtractedStream] = useState<ExtractedStream | null>(null);
+  const [useFallbackIframe, setUseFallbackIframe] = useState(false);
+  const [extracting, setExtracting] = useState(false);
   const seasonDropdownRef = useRef<HTMLDivElement>(null);
   const { addToWatchlist, removeFromWatchlist, isInWatchlist } = useWatchlist();
   const { isEpisodeWatched, toggleEpisodeWatched } = useWatchedEpisodes();
@@ -109,10 +115,48 @@ const TVDetail: React.FC = () => {
     }
   };
 
-  const playEpisode = (season: number, episode: number) => {
+  // Play episode with stream extraction
+  const playEpisode = async (season: number, episode: number) => {
     setCurrentEpisode({ season, episode });
     setIsPlaying(true);
+    setExtracting(true);
+    setUseFallbackIframe(false);
+    setExtractedStream(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    try {
+      console.log('[TVDetail] Starting stream extraction for:', show.id, 'S', season, 'E', episode);
+      const result = await streamExtractor.extract({
+        type: 'tv',
+        tmdbId: show.id.toString(),
+        season,
+        episode,
+      });
+
+      console.log('[TVDetail] Extraction result:', result);
+
+      if (result.success && result.extractedStream) {
+        console.log('[TVDetail] Using NativePlayer with m3u8:', result.extractedStream.m3u8Url.substring(0, 80));
+        setExtractedStream(result.extractedStream);
+        setUseFallbackIframe(false);
+      } else {
+        console.log('[TVDetail] Falling back to iframe');
+        setUseFallbackIframe(true);
+      }
+    } catch (err) {
+      console.error('[TVDetail] Extraction error:', err);
+      setUseFallbackIframe(true);
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  // Close player
+  const handleClosePlayer = () => {
+    setIsPlaying(false);
+    setExtractedStream(null);
+    setUseFallbackIframe(false);
+    setExtracting(false);
   };
 
   // Episode navigation logic
@@ -149,21 +193,45 @@ const TVDetail: React.FC = () => {
         
         {isPlaying ? (
           <>
-            {/* Inline Video Player */}
-            <iframe
-              src={streamUrl}
-              className="absolute inset-0 w-full h-full"
-              title={show.name}
-              frameBorder="0"
-              allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
-              allowFullScreen
-              referrerPolicy="origin"
-            />
+            {/* Loading State */}
+            {extracting && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black z-10">
+                <div className="text-center">
+                  <div className="w-12 h-12 border-4 border-white/20 border-t-primary rounded-full animate-spin mx-auto mb-4"></div>
+                  <p className="text-white">Preparing stream...</p>
+                </div>
+              </div>
+            )}
+
+            {/* NativePlayer when stream is extracted */}
+            {extractedStream && !useFallbackIframe && (
+              <div className="absolute inset-0">
+                <NativePlayer
+                  extracted={extractedStream}
+                  title={`${show.name} - S${currentEpisode.season}E${currentEpisode.episode}`}
+                  poster={show.backdrop_path ? `${TMDB_IMAGE_BASE_URL}/w780${show.backdrop_path}` : undefined}
+                  autoplay={true}
+                />
+              </div>
+            )}
+
+            {/* Fallback iframe when extraction fails */}
+            {useFallbackIframe && !extracting && (
+              <iframe
+                src={streamUrl}
+                className="absolute inset-0 w-full h-full"
+                title={show.name}
+                frameBorder="0"
+                allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+                allowFullScreen
+                referrerPolicy="origin"
+              />
+            )}
             
             {/* Close button overlay */}
             <button
-              onClick={() => setIsPlaying(false)}
-              className="absolute top-4 right-4 z-20 p-3 rounded-full bg-surface/80 hover:bg-surface text-text-primary transition-colors"
+              onClick={handleClosePlayer}
+              className="absolute top-4 right-4 z-30 p-3 rounded-full bg-surface/80 hover:bg-surface text-text-primary transition-colors"
             >
               <FaTimes size={18} />
             </button>

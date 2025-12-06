@@ -2,11 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { tmdbService } from '../../../services/tmdb';
 import type { MovieDetails } from '../../../types';
+import type { ExtractedStream } from '../../../types/stream';
 import { TMDB_IMAGE_BASE_URL } from '../../../utils/constants';
 import { useWatchlist } from '../../../context/WatchlistContext';
+import { streamExtractor } from '../../../services/streamExtractor';
 import Loader from '../../common/Loader';
 import ContentCarousel from '../Home/ContentCarousel';
 import CastCard from './CastCard';
+import { NativePlayer } from '../../common/NativePlayer';
 import { FaPlay, FaPlus, FaCheck, FaStar, FaTimes } from 'react-icons/fa';
 
 const MovieDetail: React.FC = () => {
@@ -16,7 +19,10 @@ const MovieDetail: React.FC = () => {
   const [movie, setMovie] = useState<MovieDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isPlaying, setIsPlaying] = useState(autoplay);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [extractedStream, setExtractedStream] = useState<ExtractedStream | null>(null);
+  const [useFallbackIframe, setUseFallbackIframe] = useState(false);
+  const [extracting, setExtracting] = useState(false);
   const { addToWatchlist, removeFromWatchlist, isInWatchlist } = useWatchlist();
 
   // Ad blocker is now handled globally in App.tsx
@@ -72,6 +78,54 @@ const MovieDetail: React.FC = () => {
     }
   };
 
+  // Handle play button click - attempt stream extraction
+  const handlePlayClick = async () => {
+    if (isPlaying) {
+      setIsPlaying(false);
+      setExtractedStream(null);
+      setUseFallbackIframe(false);
+      return;
+    }
+
+    setIsPlaying(true);
+    setExtracting(true);
+    setUseFallbackIframe(false);
+    setExtractedStream(null);
+
+    try {
+      console.log('[MovieDetail] Starting stream extraction for:', movie.id);
+      const result = await streamExtractor.extract({
+        type: 'movie',
+        tmdbId: movie.id.toString(),
+      });
+
+      console.log('[MovieDetail] Extraction result:', result);
+
+      if (result.success && result.extractedStream) {
+        console.log('[MovieDetail] Using NativePlayer with m3u8:', result.extractedStream.m3u8Url.substring(0, 80));
+        setExtractedStream(result.extractedStream);
+        setUseFallbackIframe(false);
+      } else {
+        // Fallback to iframe
+        console.log('[MovieDetail] Falling back to iframe');
+        setUseFallbackIframe(true);
+      }
+    } catch (err) {
+      console.error('[MovieDetail] Extraction error:', err);
+      setUseFallbackIframe(true);
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  // Close player
+  const handleClosePlayer = () => {
+    setIsPlaying(false);
+    setExtractedStream(null);
+    setUseFallbackIframe(false);
+    setExtracting(false);
+  };
+
   return (
     <div className="min-h-screen bg-bg-primary">
       {/* Netflix-style Hero Section */}
@@ -80,21 +134,45 @@ const MovieDetail: React.FC = () => {
         {/* Backdrop Image or Video Player */}
         {isPlaying ? (
           <>
-            {/* Inline Video Player */}
-            <iframe
-              src={streamUrl}
-              className="absolute inset-0 w-full h-full"
-              title={movie.title}
-              frameBorder="0"
-              allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
-              allowFullScreen
-              referrerPolicy="origin"
-            />
+            {/* Loading State */}
+            {extracting && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black z-10">
+                <div className="text-center">
+                  <div className="w-12 h-12 border-4 border-white/20 border-t-primary rounded-full animate-spin mx-auto mb-4"></div>
+                  <p className="text-white">Preparing stream...</p>
+                </div>
+              </div>
+            )}
+
+            {/* NativePlayer when stream is extracted */}
+            {extractedStream && !useFallbackIframe && (
+              <div className="absolute inset-0">
+                <NativePlayer
+                  extracted={extractedStream}
+                  title={movie.title}
+                  poster={movie.backdrop_path ? `${TMDB_IMAGE_BASE_URL}/w780${movie.backdrop_path}` : undefined}
+                  autoplay={true}
+                />
+              </div>
+            )}
+
+            {/* Fallback iframe when extraction fails */}
+            {useFallbackIframe && !extracting && (
+              <iframe
+                src={streamUrl}
+                className="absolute inset-0 w-full h-full"
+                title={movie.title}
+                frameBorder="0"
+                allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+                allowFullScreen
+                referrerPolicy="origin"
+              />
+            )}
             
             {/* Close button overlay */}
             <button
-              onClick={() => setIsPlaying(false)}
-              className="absolute top-4 right-4 z-20 p-3 rounded-full bg-surface/80 hover:bg-surface text-text-primary transition-colors"
+              onClick={handleClosePlayer}
+              className="absolute top-4 right-4 z-30 p-3 rounded-full bg-surface/80 hover:bg-surface text-text-primary transition-colors"
             >
               <FaTimes size={18} />
             </button>
@@ -154,7 +232,7 @@ const MovieDetail: React.FC = () => {
                   {/* Action Buttons */}
                   <div className="flex items-center gap-3 pt-4">
                     <button
-                      onClick={() => setIsPlaying(true)}
+                      onClick={handlePlayClick}
                       className="flex items-center gap-2 px-6 md:px-8 py-3 bg-white hover:bg-white/90 text-black font-bold rounded-md transition-colors text-lg"
                     >
                       <FaPlay /> Play
