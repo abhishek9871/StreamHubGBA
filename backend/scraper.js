@@ -336,10 +336,12 @@ app.post('/api/cache/clear', (req, res) => {
 
 // Start server
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
+const HOST = process.env.HOST || '0.0.0.0'; // Bind to all interfaces for containers
+
+app.listen(PORT, HOST, () => {
   console.log('');
   console.log('🎬 ═══════════════════════════════════════════════════════');
-  console.log(`🎬 FlixNest Scraper running on http://localhost:${PORT}`);
+  console.log(`🎬 FlixNest Scraper running on http://${HOST}:${PORT}`);
   console.log('🎬 ═══════════════════════════════════════════════════════');
   console.log('');
   console.log('📡 Endpoints:');

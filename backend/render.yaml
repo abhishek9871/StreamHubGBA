@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: flixnest-scraper
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: npm install && npx playwright install chromium --with-deps
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: NODE_ENV
+        value: production
