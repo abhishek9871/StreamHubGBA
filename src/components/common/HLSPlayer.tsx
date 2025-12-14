@@ -64,14 +64,23 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
         if (Hls.isSupported()) {
             hls = new Hls({
                 enableWorker: true,
-                lowLatencyMode: true,
-                backBufferLength: 30,
-                maxBufferLength: 10,
-                maxMaxBufferLength: 30,
-                startLevel: -1,
+                lowLatencyMode: false,           // Disable for smoother playback
+                backBufferLength: 60,            // Keep 60s of back buffer
+                maxBufferLength: 60,             // Buffer up to 60s ahead
+                maxMaxBufferLength: 120,         // Allow up to 2 minutes buffer
+                maxBufferSize: 60 * 1000 * 1000, // 60MB buffer
+                maxBufferHole: 0.5,              // Max 0.5s hole allowed
+                startLevel: -1,                  // Will set to highest in MANIFEST_PARSED
                 autoStartLoad: true,
                 startPosition: 0,
+                capLevelToPlayerSize: false,     // Don't limit quality
                 debug: false,
+                // Faster fragment loading for quality changes
+                fragLoadingTimeOut: 60000,       // 60s timeout for fragments
+                fragLoadingMaxRetry: 6,          // Retry 6 times
+                fragLoadingRetryDelay: 500,      // 500ms between retries
+                levelLoadingTimeOut: 30000,      // 30s for level loading
+                levelLoadingMaxRetry: 4,
                 xhrSetup: (xhr) => {
                     xhr.withCredentials = false;
                 }
@@ -88,12 +97,24 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
             hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
                 console.log(`[HLS] ✅ Manifest parsed in ${(performance.now() - initStartTime).toFixed(0)}ms, levels: ${data.levels.length}`);
 
-                // Store quality levels
+                // Store quality levels (sorted by height, highest first)
                 const levels = data.levels.map((level, index) => ({
                     label: `${level.height}p`,
-                    index
-                }));
+                    index,
+                    height: level.height
+                })).sort((a, b) => b.height - a.height);
                 setHlsLevels(levels);
+
+                // SET HIGHEST QUALITY: Find the highest resolution level
+                if (data.levels.length > 0 && hls) {
+                    const highestLevel = data.levels.reduce((maxIdx, level, idx, arr) =>
+                        level.height > arr[maxIdx].height ? idx : maxIdx, 0);
+                    hls.currentLevel = highestLevel;
+                    hls.nextLevel = highestLevel;
+                    setCurrentQuality(highestLevel);
+                    console.log(`[HLS] 🎯 Starting at highest quality: ${data.levels[highestLevel].height}p (level ${highestLevel})`);
+                }
+
                 setIsLoading(false);
 
                 // Auto-play immediately
@@ -108,32 +129,39 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
 
             // Event: Error handling with retry limit
             let networkRetries = 0;
-            const MAX_RETRIES = 5;
+            const MAX_RETRIES = 6;
 
             hls.on(Hls.Events.ERROR, (_, data) => {
-                console.error('[HLS] ❌ Error:', data.type, data.details);
-
-                if (data.fatal) {
-                    switch (data.type) {
-                        case Hls.ErrorTypes.NETWORK_ERROR:
-                            if (networkRetries < MAX_RETRIES) {
-                                networkRetries++;
-                                console.log(`[HLS] Network error, retry ${networkRetries}/${MAX_RETRIES}...`);
-                                setTimeout(() => hls?.startLoad(), 1000); // Wait 1s before retry
-                            } else {
-                                setError('Network error - please try again');
-                                setIsLoading(false);
-                            }
-                            break;
-                        case Hls.ErrorTypes.MEDIA_ERROR:
-                            console.log('[HLS] Media error, recovering...');
-                            hls?.recoverMediaError();
-                            break;
-                        default:
-                            setError(`Playback error: ${data.details}`);
-                            setIsLoading(false);
-                            break;
+                // Non-fatal errors - just log, don't show to user
+                if (!data.fatal) {
+                    // Buffer stall is common during quality changes, ignore it
+                    if (data.details !== 'bufferStalledError' && data.details !== 'bufferSeekOverHole') {
+                        console.log('[HLS] ⚠️ Non-fatal:', data.details);
                     }
+                    return;
+                }
+
+                console.error('[HLS] ❌ Fatal error:', data.type, data.details);
+
+                switch (data.type) {
+                    case Hls.ErrorTypes.NETWORK_ERROR:
+                        if (networkRetries < MAX_RETRIES) {
+                            networkRetries++;
+                            console.log(`[HLS] Network error, retry ${networkRetries}/${MAX_RETRIES}...`);
+                            setTimeout(() => hls?.startLoad(), 1000);
+                        } else {
+                            setError('Network error - please try again');
+                            setIsLoading(false);
+                        }
+                        break;
+                    case Hls.ErrorTypes.MEDIA_ERROR:
+                        console.log('[HLS] Media error, recovering...');
+                        hls?.recoverMediaError();
+                        break;
+                    default:
+                        setError(`Playback error: ${data.details}`);
+                        setIsLoading(false);
+                        break;
                 }
             });
 
@@ -275,8 +303,12 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
 
     const selectQuality = (level: number) => {
         if (hlsRef.current) {
+            // Use nextLevel for smooth switching without interrupting current playback
+            hlsRef.current.nextLevel = level;
+            // Also set currentLevel to force immediate switch if needed
             hlsRef.current.currentLevel = level;
             setCurrentQuality(level);
+            console.log(`[HLS] 🔄 Quality changed to level ${level}`);
         }
         setShowQualityMenu(false);
     };

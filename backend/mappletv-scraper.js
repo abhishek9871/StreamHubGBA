@@ -127,6 +127,109 @@ async function tryClickPlay(page) {
 }
 
 /**
+ * Try to switch to a specific server
+ * Flow: 1. Click "switch server" → 2. Click server button → 3. Click "Confirm" → 4. Wait for load
+ * @param {Page} page - Puppeteer page
+ * @param {number} serverNum - Server number to select (2, 3, 4, 5)
+ */
+async function trySwitchServer(page, serverNum) {
+    console.log(`[Server] 🔄 Switching to server ${serverNum}...`);
+
+    try {
+        // Step 1: Click the "Not working? switch server!" button
+        console.log('[Server] Step 1: Looking for switch server button...');
+        let switchButtonFound = false;
+
+        const allElements = await page.$$('button, a, div, span, p');
+        for (const el of allElements) {
+            try {
+                const text = await el.evaluate(e => e.textContent?.toLowerCase() || '');
+                if (text.includes('not working') || text.includes('switch server')) {
+                    const box = await el.boundingBox();
+                    if (box && box.width > 30 && box.height > 10) {
+                        console.log('[Server] ✅ Found "switch server" button, clicking...');
+                        await el.click();
+                        await new Promise(r => setTimeout(r, 2000)); // Wait for server list to appear
+                        switchButtonFound = true;
+                        break;
+                    }
+                }
+            } catch (e) { }
+        }
+
+        if (!switchButtonFound) {
+            console.log('[Server] ⚠️ Could not find switch server button');
+            return false;
+        }
+
+        // Step 2: Find and click the specific server button (Server 2, Server 3, etc.)
+        console.log(`[Server] Step 2: Looking for Server ${serverNum} button...`);
+        await new Promise(r => setTimeout(r, 1000)); // Wait for buttons to render
+
+        let serverButtonFound = false;
+        const serverElements = await page.$$('button, a, div, span');
+        for (const el of serverElements) {
+            try {
+                const text = await el.evaluate(e => e.textContent || '');
+                // Match "Server 2", "Server 2 - Most reliable", etc.
+                if (text.match(new RegExp(`^\\s*Server\\s+${serverNum}\\b`, 'i'))) {
+                    const box = await el.boundingBox();
+                    if (box && box.width > 50 && box.height > 15) {
+                        console.log(`[Server] ✅ Found Server ${serverNum} button: "${text.trim().substring(0, 40)}"`);
+                        await el.click();
+                        await new Promise(r => setTimeout(r, 1500)); // Wait for confirmation dialog
+                        serverButtonFound = true;
+                        break;
+                    }
+                }
+            } catch (e) { }
+        }
+
+        if (!serverButtonFound) {
+            console.log(`[Server] ⚠️ Could not find Server ${serverNum} button`);
+            return false;
+        }
+
+        // Step 3: Click "Confirm" button in the dialog
+        console.log('[Server] Step 3: Looking for Confirm button...');
+        await new Promise(r => setTimeout(r, 500));
+
+        let confirmFound = false;
+        const confirmElements = await page.$$('button, a, div[role="button"]');
+        for (const el of confirmElements) {
+            try {
+                const text = await el.evaluate(e => e.textContent?.toLowerCase() || '');
+                if (text.includes('confirm') || text === 'ok' || text === 'yes') {
+                    const box = await el.boundingBox();
+                    if (box && box.width > 30 && box.height > 15) {
+                        console.log('[Server] ✅ Found Confirm button, clicking...');
+                        await el.click();
+                        await new Promise(r => setTimeout(r, 2000)); // Wait for server to load
+                        confirmFound = true;
+                        break;
+                    }
+                }
+            } catch (e) { }
+        }
+
+        if (!confirmFound) {
+            console.log('[Server] ⚠️ No confirmation dialog found (may not be needed)');
+        }
+
+        // Step 4: Click outside/dismiss any remaining modals
+        await page.mouse.click(640, 200);
+        await new Promise(r => setTimeout(r, 500));
+
+        console.log(`[Server] ✅ Switched to Server ${serverNum}`);
+        return true;
+
+    } catch (error) {
+        console.error('[Server] ❌ Error switching server:', error.message);
+        return false;
+    }
+}
+
+/**
  * Parse subtitles from M3U8 content
  */
 function parseSubtitles(m3u8Content) {
@@ -275,54 +378,70 @@ app.get('/api/mappletv/extract', async (req, res) => {
         console.log('[Extract] 🎬 Clicking play...');
         await tryClickPlay(page);
 
-        // Wait for M3U8 with 45 second timeout (some movies take longer)
-        let elapsed = 0;
-        const MAX_WAIT = 45000; // 45 seconds max (increased from 15s)
-        const POLL_INTERVAL = 200; // Check every 200ms
+        // Multi-server approach: Try primary server first, then fallback servers
+        const MAX_SERVERS = 4;  // Try up to 4 servers
+        const SERVER_TIMEOUT = 15000;  // 15 seconds per server
+        const POLL_INTERVAL = 200;
 
-        while (elapsed < MAX_WAIT) {
-            if (foundMedia) {
-                const totalTime = Date.now() - startTime;
-                console.log(`[Extract] 🎉 Found media in ${totalTime}ms`);
-                break;
+        for (let serverNum = 1; serverNum <= MAX_SERVERS; serverNum++) {
+            console.log(`[Extract] 📡 Trying server ${serverNum}/${MAX_SERVERS}...`);
+
+            let elapsed = 0;
+
+            while (elapsed < SERVER_TIMEOUT) {
+                if (foundMedia) {
+                    const totalTime = Date.now() - startTime;
+                    console.log(`[Extract] 🎉 Found media on server ${serverNum} in ${totalTime}ms`);
+
+                    page.off('response', responseHandler);
+
+                    return res.json({
+                        success: true,
+                        m3u8Url: foundMedia,
+                        referer: capturedReferer || 'https://mapple.uk/',
+                        provider: 'mappletv',
+                        server: serverNum,
+                        extractionTime: totalTime
+                    });
+                }
+
+                // Click play every 5 seconds
+                if (elapsed > 0 && elapsed % 5000 === 0) {
+                    console.log(`[Extract] 💓 Server ${serverNum}: ${(elapsed / 1000).toFixed(0)}s...`);
+                    await tryClickPlay(page);
+                }
+
+                await new Promise(r => setTimeout(r, POLL_INTERVAL));
+                elapsed += POLL_INTERVAL;
             }
 
-            // Click play every 5 seconds if not found yet (some movies show "please wait")
-            if (elapsed > 0 && elapsed % 5000 === 0) {
-                console.log(`[Extract] 💓 ${(elapsed / 1000).toFixed(0)}s: Retrying play click...`);
+            // Server didn't return M3U8 - try switching to next server
+            if (serverNum < MAX_SERVERS) {
+                console.log(`[Extract] ⚠️ Server ${serverNum} failed, switching to server ${serverNum + 1}...`);
+                const switched = await trySwitchServer(page, serverNum + 1);
+                if (!switched) {
+                    console.log('[Extract] ⚠️ Could not find switch server button, trying fallback clicks...');
+                    // Try clicking in the area where server buttons might be
+                    await page.mouse.click(640, 550);
+                    await new Promise(r => setTimeout(r, 1500));
+                }
                 await tryClickPlay(page);
             }
-
-            await new Promise(r => setTimeout(r, POLL_INTERVAL));
-            elapsed += POLL_INTERVAL;
         }
 
         page.off('response', responseHandler);
 
-        if (foundMedia) {
-            const totalTime = Date.now() - startTime;
-            console.log(`[Extract] ✅ Success! Total time: ${totalTime}ms`);
-
-            // OPTIMIZATION: Return immediately, skip quality parsing
-            // Frontend's HLS.js will discover quality levels automatically
-            return res.json({
-                success: true,
-                m3u8Url: foundMedia,
-                referer: capturedReferer || 'https://mapple.uk/',
-                provider: 'mappletv',
-                extractionTime: totalTime
-            });
-        } else {
-            console.log('[Extract] ❌ No media found after 45s');
-            return res.status(500).json({
-                success: false,
-                error: 'Could not extract M3U8 URL (timeout)',
-                debug: {
-                    finalUrl: page.url(),
-                    title: await page.title()
-                }
-            });
-        }
+        // All servers failed
+        console.log(`[Extract] ❌ No media found after trying ${MAX_SERVERS} servers`);
+        return res.status(500).json({
+            success: false,
+            error: `Could not extract M3U8 URL after trying ${MAX_SERVERS} servers`,
+            debug: {
+                finalUrl: page.url(),
+                title: await page.title(),
+                serversAttempted: MAX_SERVERS
+            }
+        });
 
     } catch (error) {
         console.error('[Extract] ❌ Error:', error.message);
