@@ -250,91 +250,72 @@ app.get('/api/mappletv/extract', async (req, res) => {
 
     const targetUrl = getMappletTVUrl(tmdbId, type, season, episode);
     console.log(`[Extract] 📍 Navigating to: ${targetUrl}`);
+    const startTime = Date.now();
 
     try {
-        await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 60000 });
-        console.log('[Extract] ✅ Page loaded');
+        // OPTIMIZATION: Use domcontentloaded instead of networkidle2 (much faster)
+        await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+        console.log(`[Extract] ✅ Page loaded in ${Date.now() - startTime}ms`);
 
-        // Handle Cloudflare if present
+        // Handle Cloudflare if present (only wait if actually blocked)
         const title = await page.title();
         if (title.includes('Just a moment') || title.includes('Cloudflare')) {
-            console.log('[Extract] 🛡️ Cloudflare detected, waiting...');
+            console.log('[Extract] 🛡️ Cloudflare detected, handling...');
             await page.mouse.move(100, 100);
             await page.mouse.move(200, 200);
             await page.mouse.click(200, 200);
-            await new Promise(r => setTimeout(r, 10000));
+            await new Promise(r => setTimeout(r, 3000)); // Reduced from 10s
         }
 
-        // Wait for page to settle
-        await new Promise(r => setTimeout(r, 2000));
+        // OPTIMIZATION: Minimal wait, just enough for JS to initialize
+        await new Promise(r => setTimeout(r, 300));
 
-        // Click play button
+        // Click play button immediately
         console.log('[Extract] 🎬 Clicking play...');
         await tryClickPlay(page);
 
-        // Wait for M3U8 to be captured
-        let attempts = 0;
-        const MAX_ATTEMPTS = 45; // 45 seconds max
+        // OPTIMIZATION: Fast polling with 200ms intervals, max 15 seconds
+        let elapsed = 0;
+        const MAX_WAIT = 15000; // 15 seconds max
+        const POLL_INTERVAL = 200; // Check every 200ms
 
-        while (attempts < MAX_ATTEMPTS) {
+        while (elapsed < MAX_WAIT) {
             if (foundMedia) {
-                console.log(`[Extract] 🎉 Found media after ${attempts}s`);
-                // Wait a bit more for quality streams
-                await new Promise(r => setTimeout(r, 2000));
+                const totalTime = Date.now() - startTime;
+                console.log(`[Extract] 🎉 Found media in ${totalTime}ms`);
                 break;
             }
 
-            // Periodically click play
-            if (attempts > 0 && attempts % 10 === 0) {
-                console.log(`[Extract] 💓 ${attempts}s: Retrying play click...`);
+            // Click play every 3 seconds if not found yet
+            if (elapsed > 0 && elapsed % 3000 === 0) {
+                console.log(`[Extract] 💓 ${elapsed}ms: Retrying play click...`);
                 await tryClickPlay(page);
             }
 
-            await new Promise(r => setTimeout(r, 1000));
-            attempts++;
+            await new Promise(r => setTimeout(r, POLL_INTERVAL));
+            elapsed += POLL_INTERVAL;
         }
 
         page.off('response', responseHandler);
 
         if (foundMedia) {
-            console.log('[Extract] ✅ Success!');
+            const totalTime = Date.now() - startTime;
+            console.log(`[Extract] ✅ Success! Total time: ${totalTime}ms`);
 
-            // Fetch the M3U8 content to parse qualities and subtitles
-            let qualities = [];
-            let subtitles = [];
-
-            try {
-                const axios = (await import('axios')).default;
-                const m3u8Response = await axios.get(foundMedia, {
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                        'Referer': capturedReferer || 'https://mapple.uk/'
-                    },
-                    timeout: 10000
-                });
-
-                const content = m3u8Response.data;
-                qualities = parseQualities(content);
-                subtitles = parseSubtitles(content);
-            } catch (e) {
-                console.log('[Extract] ⚠️ Could not parse M3U8 details:', e.message);
-            }
-
+            // OPTIMIZATION: Return immediately, skip quality parsing
+            // Frontend's HLS.js will discover quality levels automatically
             return res.json({
                 success: true,
                 m3u8Url: foundMedia,
                 referer: capturedReferer || 'https://mapple.uk/',
                 provider: 'mappletv',
-                qualities: qualities.map(q => q.quality),
-                qualityDetails: qualities,
-                subtitles: subtitles,
-                allUrls: [...new Set(m3u8Urls)]
+                extractionTime: totalTime
             });
         } else {
-            console.log('[Extract] ❌ No media found');
+            console.log('[Extract] ❌ No media found after 15s');
             return res.status(500).json({
                 success: false,
-                error: 'Could not extract M3U8 URL',
+                error: 'Could not extract M3U8 URL (timeout)',
                 debug: {
                     finalUrl: page.url(),
                     title: await page.title()

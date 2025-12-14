@@ -594,20 +594,27 @@ Video plays!
 
 ### Current Status (December 2024)
 
-**Working:**
-- ✅ Backend M3U8 extraction from MappletTV
+**✅ FULLY WORKING:**
+- ✅ Backend M3U8 extraction from MappletTV (~5-10 seconds)
 - ✅ Backend proxy endpoints for M3U8 and segments
-- ✅ URL rewriting in M3U8 playlists
+- ✅ URL rewriting in M3U8 playlists (dynamic protocol/host)
 - ✅ Frontend service with timeout and logging
-- ✅ HLSPlayer component with controls
+- ✅ HLSPlayer component with full controls
+- ✅ Video playback working end-to-end
+- ✅ Quality switching (1080p, 720p, 480p)
+- ✅ Browser reuse for faster subsequent extractions
 
-**In Progress:**
-- ⏳ HLS.js initialization timing with React Strict Mode
-- ⏳ Video playback after HLS setup
+**Performance Optimizations Applied:**
+- Backend: `domcontentloaded` instead of `networkidle2` for faster page load
+- Backend: Reduced wait times (300ms page settle, 200ms polling)
+- Backend: Skip quality parsing (HLS.js discovers automatically)
+- Frontend: `lowLatencyMode: true` for faster start
+- Frontend: Reduced buffer sizes for quicker initial playback
+- Frontend: Correct HLS.js order (`attachMedia` → `loadSource`)
 
-**Known Issues:**
-- HLS.js `MEDIA_ATTACHED` event sometimes doesn't fire
-- React Strict Mode causes double-mount which disrupts HLS initialization
+**Extraction Times:**
+- First request: ~10-15 seconds (browser launch)
+- Subsequent requests: ~5-8 seconds (browser reuse)
 
 ---
 

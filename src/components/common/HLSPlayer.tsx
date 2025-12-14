@@ -66,13 +66,15 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
 
             hls = new Hls({
                 enableWorker: true,
-                lowLatencyMode: false,
-                backBufferLength: 90,
-                maxBufferLength: 30,
-                startLevel: -1, // Auto quality selection
+                lowLatencyMode: true,  // Enable low latency for faster start
+                backBufferLength: 30,  // Reduced from 90
+                maxBufferLength: 10,   // Reduced from 30 for faster initial playback
+                maxMaxBufferLength: 30,
+                startLevel: -1,        // Auto quality selection
+                autoStartLoad: true,   // Start loading immediately
+                startPosition: 0,      // Start from beginning
                 debug: false,
-                xhrSetup: (xhr, url) => {
-                    console.log('[HLS] 🌐 Loading:', url.substring(0, 80));
+                xhrSetup: (xhr) => {
                     xhr.withCredentials = false;
                 }
             });
@@ -327,7 +329,7 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
             {/* Loading Spinner */}
             {isLoading && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-                    <FaSpinner className="text-white text-4xl animate-spin" />
+                    <span className="text-white text-4xl animate-spin"><FaSpinner /></span>
                 </div>
             )}
 
@@ -337,7 +339,7 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
                     className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-red-600 rounded-full p-6 hover:bg-red-700 transition-colors"
                     onClick={togglePlay}
                 >
-                    <FaPlay className="text-white text-3xl ml-1" />
+                    <span className="text-white text-3xl ml-1"><FaPlay /></span>
                 </button>
             )}
 
