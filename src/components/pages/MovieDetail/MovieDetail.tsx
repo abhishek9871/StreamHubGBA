@@ -53,6 +53,7 @@ const MovieDetail: React.FC = () => {
   const handlePlay = useCallback(async () => {
     if (!id) return;
 
+    const startTime = performance.now();
     setIsPlaying(true);
     setStreamLoading(true);
     setStreamError(null);
@@ -61,12 +62,13 @@ const MovieDetail: React.FC = () => {
 
     try {
       const streamResponse: StreamResponse = await mappleTVService.getStream(id, 'movie');
+      const extractTime = performance.now() - startTime;
 
+      console.log(`[MovieDetail] ⏱️ Backend extraction took: ${extractTime.toFixed(0)}ms`);
       console.log('[MovieDetail] Response:', streamResponse);
 
       if (streamResponse.success && streamResponse.m3u8Url) {
         console.log('[MovieDetail] ✅ Stream extracted successfully');
-        console.log('[MovieDetail] Original M3U8:', streamResponse.m3u8Url);
 
         // Proxy the M3U8 URL through our backend to avoid CORS issues
         const proxiedUrl = mappleTVService.getProxiedUrl(
@@ -75,10 +77,13 @@ const MovieDetail: React.FC = () => {
         );
         console.log('[MovieDetail] Proxied M3U8:', proxiedUrl);
 
+        // Set URL immediately - HLSPlayer will handle the rest
         setHlsUrl(proxiedUrl);
         setHlsReferer(streamResponse.referer || 'https://mapple.uk/');
         setSubtitles(streamResponse.subtitles || []);
         setStreamLoading(false);
+
+        console.log(`[MovieDetail] ⏱️ Total time to set URL: ${(performance.now() - startTime).toFixed(0)}ms`);
       } else {
         console.error('[MovieDetail] ❌ Stream extraction failed:', streamResponse.error);
         setStreamError(streamResponse.error || 'Failed to extract stream');

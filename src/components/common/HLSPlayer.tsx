@@ -49,11 +49,11 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
     useEffect(() => {
         const video = videoRef.current;
         if (!video || !src) {
-            console.log('[HLSPlayer] No video element or src');
             return;
         }
 
-        console.log('[HLSPlayer] 🎬 Initializing with src:', src.substring(0, 100));
+        const initStartTime = performance.now();
+        console.log('[HLSPlayer] 🎬 Initializing HLS...');
         setIsLoading(true);
         setError(null);
         setHlsLevels([]);
@@ -62,17 +62,15 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
 
         // Check if HLS.js is supported
         if (Hls.isSupported()) {
-            console.log('[HLSPlayer] ✅ HLS.js is supported');
-
             hls = new Hls({
                 enableWorker: true,
-                lowLatencyMode: true,  // Enable low latency for faster start
-                backBufferLength: 30,  // Reduced from 90
-                maxBufferLength: 10,   // Reduced from 30 for faster initial playback
+                lowLatencyMode: true,
+                backBufferLength: 30,
+                maxBufferLength: 10,
                 maxMaxBufferLength: 30,
-                startLevel: -1,        // Auto quality selection
-                autoStartLoad: true,   // Start loading immediately
-                startPosition: 0,      // Start from beginning
+                startLevel: -1,
+                autoStartLoad: true,
+                startPosition: 0,
                 debug: false,
                 xhrSetup: (xhr) => {
                     xhr.withCredentials = false;
@@ -83,12 +81,12 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
 
             // Event: Media attached to video element
             hls.on(Hls.Events.MEDIA_ATTACHED, () => {
-                console.log('[HLS] 🔗 Media attached');
+                console.log(`[HLS] 🔗 Media attached (${(performance.now() - initStartTime).toFixed(0)}ms)`);
             });
 
             // Event: Manifest parsed - ready to play
             hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
-                console.log('[HLS] ✅ Manifest parsed, levels:', data.levels.length);
+                console.log(`[HLS] ✅ Manifest parsed in ${(performance.now() - initStartTime).toFixed(0)}ms, levels: ${data.levels.length}`);
 
                 // Store quality levels
                 const levels = data.levels.map((level, index) => ({
@@ -98,28 +96,34 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
                 setHlsLevels(levels);
                 setIsLoading(false);
 
-                // Auto-play
+                // Auto-play immediately
                 if (autoPlay && video) {
                     video.play().catch(e => {
                         console.log('[HLS] ⚠️ Autoplay blocked:', e.message);
-                        // Try muted autoplay
                         video.muted = true;
-                        video.play().catch(() => {
-                            console.log('[HLS] Muted autoplay also blocked');
-                        });
+                        video.play().catch(() => { });
                     });
                 }
             });
 
-            // Event: Error handling
+            // Event: Error handling with retry limit
+            let networkRetries = 0;
+            const MAX_RETRIES = 5;
+
             hls.on(Hls.Events.ERROR, (_, data) => {
                 console.error('[HLS] ❌ Error:', data.type, data.details);
 
                 if (data.fatal) {
                     switch (data.type) {
                         case Hls.ErrorTypes.NETWORK_ERROR:
-                            console.log('[HLS] Network error, retrying...');
-                            hls?.startLoad();
+                            if (networkRetries < MAX_RETRIES) {
+                                networkRetries++;
+                                console.log(`[HLS] Network error, retry ${networkRetries}/${MAX_RETRIES}...`);
+                                setTimeout(() => hls?.startLoad(), 1000); // Wait 1s before retry
+                            } else {
+                                setError('Network error - please try again');
+                                setIsLoading(false);
+                            }
                             break;
                         case Hls.ErrorTypes.MEDIA_ERROR:
                             console.log('[HLS] Media error, recovering...');

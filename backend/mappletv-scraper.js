@@ -22,6 +22,7 @@
 import express from 'express';
 import cors from 'cors';
 import { connect } from 'puppeteer-real-browser';
+import axios from 'axios';
 
 const app = express();
 const PORT = process.env.PORT || 7860;
@@ -274,9 +275,9 @@ app.get('/api/mappletv/extract', async (req, res) => {
         console.log('[Extract] 🎬 Clicking play...');
         await tryClickPlay(page);
 
-        // OPTIMIZATION: Fast polling with 200ms intervals, max 15 seconds
+        // Wait for M3U8 with 45 second timeout (some movies take longer)
         let elapsed = 0;
-        const MAX_WAIT = 15000; // 15 seconds max
+        const MAX_WAIT = 45000; // 45 seconds max (increased from 15s)
         const POLL_INTERVAL = 200; // Check every 200ms
 
         while (elapsed < MAX_WAIT) {
@@ -286,9 +287,9 @@ app.get('/api/mappletv/extract', async (req, res) => {
                 break;
             }
 
-            // Click play every 3 seconds if not found yet
-            if (elapsed > 0 && elapsed % 3000 === 0) {
-                console.log(`[Extract] 💓 ${elapsed}ms: Retrying play click...`);
+            // Click play every 5 seconds if not found yet (some movies show "please wait")
+            if (elapsed > 0 && elapsed % 5000 === 0) {
+                console.log(`[Extract] 💓 ${(elapsed / 1000).toFixed(0)}s: Retrying play click...`);
                 await tryClickPlay(page);
             }
 
@@ -312,7 +313,7 @@ app.get('/api/mappletv/extract', async (req, res) => {
                 extractionTime: totalTime
             });
         } else {
-            console.log('[Extract] ❌ No media found after 15s');
+            console.log('[Extract] ❌ No media found after 45s');
             return res.status(500).json({
                 success: false,
                 error: 'Could not extract M3U8 URL (timeout)',
@@ -346,17 +347,35 @@ app.get('/api/proxy/m3u8', async (req, res) => {
 
     console.log('[Proxy] Fetching M3U8:', decodedUrl.substring(0, 80) + '...');
 
-    try {
-        const axios = (await import('axios')).default;
-        const response = await axios.get(decodedUrl, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Referer': effectiveReferer,
-                'Origin': new URL(effectiveReferer).origin
-            },
-            timeout: 30000
-        });
+    // Retry logic for reliability
+    let response;
+    let lastError;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+            response = await axios.get(decodedUrl, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Referer': effectiveReferer,
+                    'Origin': new URL(effectiveReferer).origin
+                },
+                timeout: 60000 // Increased to 60s
+            });
+            break; // Success, exit retry loop
+        } catch (e) {
+            lastError = e;
+            if (attempt < 3) {
+                console.log(`[Proxy] M3U8 retry ${attempt}/3...`);
+                await new Promise(r => setTimeout(r, 500));
+            }
+        }
+    }
 
+    if (!response) {
+        console.error('[Proxy] M3U8 Error after 3 attempts:', lastError?.message);
+        return res.status(500).send('Proxy Error: ' + (lastError?.message || 'Unknown'));
+    }
+
+    try {
         let content = response.data;
 
         // Rewrite all URLs in the M3U8 to go through our proxy
@@ -379,6 +398,19 @@ app.get('/api/proxy/m3u8', async (req, res) => {
             // Check if this is a header that indicates next line is a playlist URL
             if (trimmed.startsWith('#EXT-X-STREAM-INF:') || trimmed.startsWith('#EXT-X-I-FRAME-STREAM-INF:')) {
                 nextLineIsPlaylist = true;
+                rewrittenLines.push(line);
+                continue;
+            }
+
+            // Check for URI= in EXT-X-KEY lines (encryption keys - CRITICAL for playback!)
+            if (trimmed.startsWith('#EXT-X-KEY:')) {
+                line = line.replace(/URI="([^"]+)"/g, (match, uri) => {
+                    if (uri.includes('/api/proxy/')) return match;
+                    const absoluteUri = uri.startsWith('http') ? uri : new URL(uri, baseUrl).href;
+                    // Keys go through segment proxy (binary data)
+                    const proxyUrl = `${proxyBase}segment?url=${encodeURIComponent(absoluteUri)}&referer=${encodeURIComponent(effectiveReferer)}`;
+                    return `URI="${proxyUrl}"`;
+                });
                 rewrittenLines.push(line);
                 continue;
             }
@@ -451,26 +483,36 @@ app.get('/api/proxy/segment', async (req, res) => {
     const decodedUrl = decodeURIComponent(url);
     const effectiveReferer = referer ? decodeURIComponent(referer) : 'https://mapple.uk/';
 
-    try {
-        const axios = (await import('axios')).default;
-        const response = await axios.get(decodedUrl, {
-            responseType: 'arraybuffer',
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Referer': effectiveReferer
-            },
-            timeout: 30000
-        });
+    // Retry logic for reliability
+    let lastError;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+            const response = await axios.get(decodedUrl, {
+                responseType: 'arraybuffer',
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Referer': effectiveReferer,
+                    'Origin': new URL(effectiveReferer).origin
+                },
+                timeout: 60000 // Increased to 60s
+            });
 
-        if (response.headers['content-type']) {
-            res.setHeader('Content-Type', response.headers['content-type']);
+            if (response.headers['content-type']) {
+                res.setHeader('Content-Type', response.headers['content-type']);
+            }
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            res.setHeader('Access-Control-Allow-Headers', '*');
+            return res.send(response.data);
+        } catch (e) {
+            lastError = e;
+            if (attempt < 3) {
+                console.log(`[Proxy] Segment retry ${attempt}/3 for: ${decodedUrl.substring(0, 50)}...`);
+                await new Promise(r => setTimeout(r, 500)); // Wait 500ms before retry
+            }
         }
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        res.send(response.data);
-    } catch (e) {
-        console.error('[Proxy] Segment Error:', e.message);
-        res.status(500).send('Proxy Error');
     }
+    console.error('[Proxy] Segment Error after 3 attempts:', lastError.message);
+    res.status(500).send('Proxy Error');
 });
 
 /**
