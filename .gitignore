@@ -22,3 +22,25 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Temp/debug files
+decoded.txt
+nul
+vidfast_response.html
+embed_api_response.html
+extract_m3u8.js
+
+# Claude settings (local only)
+.claude/
+
+# Backend temp files
+backend/*.html
+backend/test_*.json
+backend/report*.json
+backend/player_report.json
+backend/subtitle_api_dump.json
+backend/network_dump.json
+backend/tv_*.json
+backend/verification_output.json
+backend/node_modules/
+backend/diagnosis_log.txt

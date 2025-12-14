@@ -1,0 +1,19 @@
+≡ƒÜÇ Starting Puppeteer in HEADED mode...
+≡ƒôì Navigating to: https://player.embed-api.stream/?id=812583
+ΓÅ│ Waiting for page to load...
+No video found, trying other clicks...
+Clicked center of page
+ΓÅ│ Waiting 20 seconds for video to load...
+
+≡ƒô╣ Video info: null
+≡ƒô║ HLS status: No HLS detected
+
+============================================================
+≡ƒôï FINAL RESULTS
+============================================================
+
+Γ¥î No M3U8 URLs found.
+
+≡ƒæÇ Keeping browser open for 10 more seconds...
+
+Γ£à Done!

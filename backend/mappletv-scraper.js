@@ -1,0 +1,511 @@
+/**
+ * MappletTV M3U8 Extractor for FlixNest
+ * 
+ * This scraper extracts M3U8 streaming URLs from mappletv.uk (mapple.uk)
+ * using puppeteer-real-browser for stealth and Turnstile bypass.
+ * 
+ * Usage:
+ *   - GET /api/mappletv/extract?tmdbId=812583&type=movie
+ *   - GET /api/mappletv/extract?tmdbId=12345&type=tv&season=1&episode=1
+ * 
+ * Returns:
+ *   {
+ *     success: true,
+ *     m3u8Url: "https://...",
+ *     referer: "https://mapple.uk/",
+ *     provider: "mappletv",
+ *     qualities: ["1080p", "720p", "480p"],
+ *     subtitles: [...]
+ *   }
+ */
+
+import express from 'express';
+import cors from 'cors';
+import { connect } from 'puppeteer-real-browser';
+
+const app = express();
+const PORT = process.env.PORT || 7860;
+
+app.use(cors());
+app.use(express.json());
+
+// Browser Session Management
+let browserInstance = null;
+let pageInstance = null;
+
+/**
+ * Get or create browser instance
+ */
+async function getBrowser() {
+    if (browserInstance && pageInstance && !pageInstance.isClosed()) {
+        return { browser: browserInstance, page: pageInstance };
+    }
+
+    console.log('[Browser] 🚀 Launching Real Browser (Stealth)...');
+    const { browser, page } = await connect({
+        headless: false, // Must be visible to bypass bot detection
+        turnstile: true, // Handle Cloudflare Turnstile
+        fingerprint: true, // Anti-fingerprint detection
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--window-size=1280,720',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--disable-gpu'
+        ]
+    });
+
+    browserInstance = browser;
+    pageInstance = page;
+
+    // Enable request interception
+    await page.setRequestInterception(true);
+    page.on('request', req => req.continue());
+
+    // 🛡️ POPUP KILLER - Close popup tabs
+    browser.on('targetcreated', async (target) => {
+        if (target.type() === 'page') {
+            try {
+                const newPage = await target.page();
+                if (newPage && newPage !== page) {
+                    console.log('[Popup] 🚫 Closing popup');
+                    await newPage.close();
+                    if (page && !page.isClosed()) await page.bringToFront();
+                }
+            } catch (e) { }
+        }
+    });
+
+    return { browser, page };
+}
+
+/**
+ * Build MappletTV URL for content
+ */
+function getMappletTVUrl(tmdbId, type, season, episode) {
+    if (type === 'movie') {
+        return `https://mappletv.uk/watch/movie/${tmdbId}?autoPlay=true`;
+    } else {
+        return `https://mappletv.uk/watch/tv/${tmdbId}?s=${season}&e=${episode}&autoPlay=true`;
+    }
+}
+
+/**
+ * Try clicking play button on page
+ */
+async function tryClickPlay(page) {
+    const playSelectors = [
+        '#play-button', '.play-button', '.play-btn',
+        'button[class*="play"]', 'div[class*="play"]',
+        '.jw-display-icon-container', '.plyr__control--overlaid',
+        'button.vjs-big-play-button', '.player-overlay button',
+        '[data-plyr="play"]', 'video', '.loading', 'main'
+    ];
+
+    for (const sel of playSelectors) {
+        try {
+            const el = await page.$(sel);
+            if (el) {
+                const box = await el.boundingBox();
+                if (box && box.width > 0 && box.height > 0) {
+                    await el.click();
+                    await new Promise(r => setTimeout(r, 500));
+                    return true;
+                }
+            }
+        } catch (e) { }
+    }
+
+    // Fallback: Click center of page
+    try {
+        await page.mouse.click(640, 360);
+    } catch (e) { }
+
+    return false;
+}
+
+/**
+ * Parse subtitles from M3U8 content
+ */
+function parseSubtitles(m3u8Content) {
+    const subtitles = [];
+    const lines = m3u8Content.split('\n');
+
+    for (const line of lines) {
+        if (line.includes('#EXT-X-MEDIA:TYPE=SUBTITLES')) {
+            const nameMatch = line.match(/NAME="([^"]+)"/);
+            const langMatch = line.match(/LANGUAGE="([^"]+)"/);
+            const uriMatch = line.match(/URI="([^"]+)"/);
+
+            if (nameMatch && uriMatch) {
+                subtitles.push({
+                    label: nameMatch[1],
+                    language: langMatch ? langMatch[1] : 'unknown',
+                    file: uriMatch[1]
+                });
+            }
+        }
+    }
+
+    return subtitles;
+}
+
+/**
+ * Parse quality options from M3U8 content
+ */
+function parseQualities(m3u8Content) {
+    const qualities = [];
+    const lines = m3u8Content.split('\n');
+
+    for (let i = 0; i < lines.length; i++) {
+        if (lines[i].includes('#EXT-X-STREAM-INF')) {
+            const resMatch = lines[i].match(/RESOLUTION=(\d+x\d+)/);
+            const bwMatch = lines[i].match(/BANDWIDTH=(\d+)/);
+
+            if (resMatch) {
+                const height = resMatch[1].split('x')[1];
+                qualities.push({
+                    resolution: resMatch[1],
+                    quality: `${height}p`,
+                    bandwidth: bwMatch ? parseInt(bwMatch[1]) : 0,
+                    url: lines[i + 1] // Next line is the URL
+                });
+            }
+        }
+    }
+
+    return qualities.sort((a, b) => b.bandwidth - a.bandwidth);
+}
+
+/**
+ * Main extraction endpoint
+ */
+app.get('/api/mappletv/extract', async (req, res) => {
+    const { tmdbId, season, episode, type } = req.query;
+
+    if (!tmdbId || !type) {
+        return res.status(400).json({
+            success: false,
+            error: 'Missing required params: tmdbId, type'
+        });
+    }
+
+    const contentId = `${type}-${tmdbId}${type === 'tv' ? `-S${season}E${episode}` : ''}`;
+    console.log(`\n[Extract] 🎬 Starting extraction for ${contentId}...`);
+
+    let browser, page;
+    try {
+        ({ browser, page } = await getBrowser());
+    } catch (e) {
+        return res.status(500).json({
+            success: false,
+            error: 'Browser launch failed: ' + e.message
+        });
+    }
+
+    let foundMedia = null;
+    let capturedReferer = null;
+    const m3u8Urls = [];
+
+    // Network Response Handler
+    const responseHandler = async (response) => {
+        const url = response.url();
+        const contentType = response.headers()['content-type'] || '';
+
+        // Capture M3U8 URLs
+        if ((url.includes('.m3u8') || contentType.includes('mpegurl')) && !url.includes('sk-')) {
+            console.log(`[Target] 🎯 Found M3U8: ${url.substring(0, 80)}...`);
+            m3u8Urls.push(url);
+
+            if (!foundMedia || url.includes('master') || url.includes('playlist') || url.includes('index')) {
+                foundMedia = url;
+                try {
+                    capturedReferer = response.request().headers()['referer'] || page.url();
+                } catch (e) {
+                    capturedReferer = page.url();
+                }
+            }
+        }
+
+        // Also check JSON/text responses for embedded M3U8 URLs
+        if (contentType.includes('json') || contentType.includes('text/html')) {
+            try {
+                const text = await response.text();
+                const matches = text.match(/https?:\/\/[^\s"'<>\\]+\.m3u8[^\s"'<>\\]*/gi);
+                if (matches) {
+                    matches.forEach(m => {
+                        if (!m3u8Urls.includes(m)) {
+                            console.log(`[Target] 🎯 Found M3U8 in response: ${m.substring(0, 60)}...`);
+                            m3u8Urls.push(m);
+                            if (!foundMedia) foundMedia = m;
+                        }
+                    });
+                }
+            } catch (e) { }
+        }
+    };
+
+    page.on('response', responseHandler);
+
+    const targetUrl = getMappletTVUrl(tmdbId, type, season, episode);
+    console.log(`[Extract] 📍 Navigating to: ${targetUrl}`);
+
+    try {
+        await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+        console.log('[Extract] ✅ Page loaded');
+
+        // Handle Cloudflare if present
+        const title = await page.title();
+        if (title.includes('Just a moment') || title.includes('Cloudflare')) {
+            console.log('[Extract] 🛡️ Cloudflare detected, waiting...');
+            await page.mouse.move(100, 100);
+            await page.mouse.move(200, 200);
+            await page.mouse.click(200, 200);
+            await new Promise(r => setTimeout(r, 10000));
+        }
+
+        // Wait for page to settle
+        await new Promise(r => setTimeout(r, 2000));
+
+        // Click play button
+        console.log('[Extract] 🎬 Clicking play...');
+        await tryClickPlay(page);
+
+        // Wait for M3U8 to be captured
+        let attempts = 0;
+        const MAX_ATTEMPTS = 45; // 45 seconds max
+
+        while (attempts < MAX_ATTEMPTS) {
+            if (foundMedia) {
+                console.log(`[Extract] 🎉 Found media after ${attempts}s`);
+                // Wait a bit more for quality streams
+                await new Promise(r => setTimeout(r, 2000));
+                break;
+            }
+
+            // Periodically click play
+            if (attempts > 0 && attempts % 10 === 0) {
+                console.log(`[Extract] 💓 ${attempts}s: Retrying play click...`);
+                await tryClickPlay(page);
+            }
+
+            await new Promise(r => setTimeout(r, 1000));
+            attempts++;
+        }
+
+        page.off('response', responseHandler);
+
+        if (foundMedia) {
+            console.log('[Extract] ✅ Success!');
+
+            // Fetch the M3U8 content to parse qualities and subtitles
+            let qualities = [];
+            let subtitles = [];
+
+            try {
+                const axios = (await import('axios')).default;
+                const m3u8Response = await axios.get(foundMedia, {
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                        'Referer': capturedReferer || 'https://mapple.uk/'
+                    },
+                    timeout: 10000
+                });
+
+                const content = m3u8Response.data;
+                qualities = parseQualities(content);
+                subtitles = parseSubtitles(content);
+            } catch (e) {
+                console.log('[Extract] ⚠️ Could not parse M3U8 details:', e.message);
+            }
+
+            return res.json({
+                success: true,
+                m3u8Url: foundMedia,
+                referer: capturedReferer || 'https://mapple.uk/',
+                provider: 'mappletv',
+                qualities: qualities.map(q => q.quality),
+                qualityDetails: qualities,
+                subtitles: subtitles,
+                allUrls: [...new Set(m3u8Urls)]
+            });
+        } else {
+            console.log('[Extract] ❌ No media found');
+            return res.status(500).json({
+                success: false,
+                error: 'Could not extract M3U8 URL',
+                debug: {
+                    finalUrl: page.url(),
+                    title: await page.title()
+                }
+            });
+        }
+
+    } catch (error) {
+        console.error('[Extract] ❌ Error:', error.message);
+        page.off('response', responseHandler);
+        return res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Proxy endpoint for M3U8 playlists - rewrites internal URLs to proxy
+ */
+app.get('/api/proxy/m3u8', async (req, res) => {
+    const { url, referer } = req.query;
+    if (!url) return res.status(400).send('No URL provided');
+
+    const decodedUrl = decodeURIComponent(url);
+    const effectiveReferer = referer ? decodeURIComponent(referer) : 'https://mapple.uk/';
+    const baseUrl = new URL(decodedUrl);
+
+    console.log('[Proxy] Fetching M3U8:', decodedUrl.substring(0, 80) + '...');
+
+    try {
+        const axios = (await import('axios')).default;
+        const response = await axios.get(decodedUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': effectiveReferer,
+                'Origin': new URL(effectiveReferer).origin
+            },
+            timeout: 30000
+        });
+
+        let content = response.data;
+
+        // Rewrite all URLs in the M3U8 to go through our proxy
+        // We need to detect if a URL is for a playlist (.m3u8) or segment (.ts/.mp4/.aac etc)
+        // Lines after #EXT-X-STREAM-INF or #EXT-X-MEDIA are playlists
+
+        const lines = content.split('\n');
+        const rewrittenLines = [];
+        let nextLineIsPlaylist = false;
+
+        // Build dynamic proxy base URL from request (once, outside loop)
+        const protocol = req.protocol || 'http';
+        const host = req.get('host') || 'localhost:7860';
+        const proxyBase = `${protocol}://${host}/api/proxy/`;
+
+        for (let i = 0; i < lines.length; i++) {
+            let line = lines[i];
+            const trimmed = line.trim();
+
+            // Check if this is a header that indicates next line is a playlist URL
+            if (trimmed.startsWith('#EXT-X-STREAM-INF:') || trimmed.startsWith('#EXT-X-I-FRAME-STREAM-INF:')) {
+                nextLineIsPlaylist = true;
+                rewrittenLines.push(line);
+                continue;
+            }
+
+            // Check for URI= in EXT-X-MEDIA lines
+            if (trimmed.startsWith('#EXT-X-MEDIA:')) {
+                line = line.replace(/URI="([^"]+)"/g, (match, uri) => {
+                    if (uri.includes('/api/proxy/')) return match;
+                    const absoluteUri = uri.startsWith('http') ? uri : new URL(uri, baseUrl).href;
+                    const proxyUrl = `${proxyBase}m3u8?url=${encodeURIComponent(absoluteUri)}&referer=${encodeURIComponent(effectiveReferer)}`;
+                    return `URI="${proxyUrl}"`;
+                });
+                rewrittenLines.push(line);
+                continue;
+            }
+
+            // Non-URL lines
+            if (!trimmed || trimmed.startsWith('#')) {
+                rewrittenLines.push(line);
+                continue;
+            }
+
+            // This is a URL line - determine if playlist or segment
+            let absoluteUrl = trimmed.startsWith('http') ? trimmed : new URL(trimmed, baseUrl).href;
+
+            // Skip if already proxied
+            if (absoluteUrl.includes('/api/proxy/')) {
+                rewrittenLines.push(line);
+                nextLineIsPlaylist = false;
+                continue;
+            }
+
+            // Determine proxy type based on context and URL pattern
+            const isM3u8 = nextLineIsPlaylist ||
+                absoluteUrl.endsWith('.m3u8') ||
+                absoluteUrl.includes('.m3u8?') ||
+                absoluteUrl.includes('/playlist/') ||
+                absoluteUrl.includes('type=video') ||
+                absoluteUrl.includes('type=audio');
+
+            if (isM3u8) {
+                line = `${proxyBase}m3u8?url=${encodeURIComponent(absoluteUrl)}&referer=${encodeURIComponent(effectiveReferer)}`;
+            } else {
+                line = `${proxyBase}segment?url=${encodeURIComponent(absoluteUrl)}&referer=${encodeURIComponent(effectiveReferer)}`;
+            }
+
+            rewrittenLines.push(line);
+            nextLineIsPlaylist = false;
+        }
+
+        content = rewrittenLines.join('\n');
+
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Headers', '*');
+        res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+        res.send(content);
+    } catch (e) {
+        console.error('[Proxy] M3U8 Error:', e.message);
+        res.status(500).send('Proxy Error: ' + e.message);
+    }
+});
+
+/**
+ * Proxy endpoint for segments/keys
+ */
+app.get('/api/proxy/segment', async (req, res) => {
+    const { url, referer } = req.query;
+    if (!url) return res.status(400).send('No URL provided');
+
+    const decodedUrl = decodeURIComponent(url);
+    const effectiveReferer = referer ? decodeURIComponent(referer) : 'https://mapple.uk/';
+
+    try {
+        const axios = (await import('axios')).default;
+        const response = await axios.get(decodedUrl, {
+            responseType: 'arraybuffer',
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': effectiveReferer
+            },
+            timeout: 30000
+        });
+
+        if (response.headers['content-type']) {
+            res.setHeader('Content-Type', response.headers['content-type']);
+        }
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.send(response.data);
+    } catch (e) {
+        console.error('[Proxy] Segment Error:', e.message);
+        res.status(500).send('Proxy Error');
+    }
+});
+
+/**
+ * Health check endpoint
+ */
+app.get('/health', (req, res) => {
+    res.json({
+        status: 'ok',
+        uptime: process.uptime(),
+        provider: 'mappletv'
+    });
+});
+
+// Start server
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`\n🎬 MappletTV Scraper running on port ${PORT}`);
+    console.log(`   Extract: GET /api/mappletv/extract?tmdbId=XXXXX&type=movie`);
+    console.log(`   Health:  GET /health\n`);
+});

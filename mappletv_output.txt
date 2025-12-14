@@ -1,0 +1,44 @@
+≡ƒÜÇ Starting Real Browser with Stealth Mode...
+[Browser] Γ£à Browser launched
+
+≡ƒôì Navigating to: https://mappletv.uk/watch/movie/812583?autoPlay=true
+[Page] Γ£à Page loaded
+[Page] Current URL: https://mapple.uk/watch/movie/812583?autoPlay=true
+[Page] Title: Wake Up Dead Man: A Knives Out Mystery | Watch Movies, TV Shows, and Listen to Audiobooks Online Free
+
+[Frames] ≡ƒöì Scanning all frames...
+[Frames] Found 3 frames
+[Frame] ≡ƒô║ https://mapple.uk/watch/movie/812583?autoPlay=true
+[DOM] Iframes in DOM: [
+  {
+    "src": "",
+    "id": "",
+    "className": ""
+  },
+  {
+    "src": "",
+    "id": "",
+    "className": ""
+  }
+]
+
+[Clicker] ≡ƒÄ¼ Looking for play button...
+[Click] ≡ƒû▒∩╕Å Clicking: video
+[Wait] ΓÅ│ Waiting for video stream...
+[Target] ≡ƒÄ» Found Media: https://proxy.heistotron.uk/p/aHR0cHM6Ly9wcm94eS5oZWlzdG90cm9uLnVrL2FwaS9wcm94eS9tM3U4P3VybD1odHRwcy...
+[Popup] ≡ƒÜ½ Closing popup tab
+[Success] ≡ƒÄë Found media after 1s
+[Target] ≡ƒÄ» Found Media: https://proxy.heistotron.uk/p/aHR0cHM6Ly9wcm94eS5oZWlzdG90cm9uLnVrL2FwaS9wcm94eS9zZWdtZW50P3VybD1odH...
+
+============================================================
+≡ƒôï FINAL RESULTS
+============================================================
+
+≡ƒÄ¼ M3U8 URLs FOUND:
+   1. https://proxy.heistotron.uk/p/aHR0cHM6Ly9wcm94eS5oZWlzdG90cm9uLnVrL2FwaS9wcm94eS9tM3U4P3VybD1odHRwcyUzQSUyRiUyRnZpeHNyYy50byUyRnBsYXlsaXN0JTJGNTcwNzg1JTNGYiUzRDElMjZ0b2tlbiUzRDU0MDc0MTIyODI3MzdkYjc0ZTJmMjVmZjM1NzgyYjNjJTI2ZXhwaXJlcyUzRDE3NzA4ODA0MTUlMjZoJTNEMSUyNmxhbmclM0RlbiZzb3VyY2U9c2FrdXJhfGFuYW5hbmFQdVRhbmdJbmFNb1BvbmFuYW5hbmFuYUJhdG1hbiE=
+
+≡ƒôÄ Referer: https://mapple.uk/
+
+≡ƒæÇ Keeping browser open for 10 more seconds...
+
+Γ£à Done!
