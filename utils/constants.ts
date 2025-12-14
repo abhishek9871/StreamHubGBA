@@ -1,6 +1,9 @@
 
-export const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
-export const TMDB_IMAGE_BASE_URL = 'https://image.tmdb.org/t/p';
+// TMDB Proxy Worker for bypassing ISP-level blocks in India (Jio/Airtel)
+// Proxy routes: /api/* -> api.themoviedb.org/3/* and /img/* -> image.tmdb.org/t/p/*
+export const TMDB_PROXY_URL = 'https://tmdb-proxy.sparshrajput088.workers.dev';
+export const TMDB_BASE_URL = `${TMDB_PROXY_URL}/api`;
+export const TMDB_IMAGE_BASE_URL = `${TMDB_PROXY_URL}/img`;
 
 // It is highly recommended to use an environment variable for the API key.
 // The user request provided a sample key, which is used here as a fallback.

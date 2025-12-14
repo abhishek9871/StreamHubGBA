@@ -128,6 +128,7 @@ async function tryClickPlay(page) {
 
 /**
  * Try to switch to a specific server
+ * Uses Puppeteer's NATIVE click methods (not page.evaluate) to properly trigger React events
  * Flow: 1. Click "switch server" → 2. Click server button → 3. Click "Confirm" → 4. Wait for load
  * @param {Page} page - Puppeteer page
  * @param {number} serverNum - Server number to select (2, 3, 4, 5)
@@ -136,91 +137,150 @@ async function trySwitchServer(page, serverNum) {
     console.log(`[Server] 🔄 Switching to server ${serverNum}...`);
 
     try {
-        // Step 1: Click the "Not working? switch server!" button
+        // Step 1: Find and NATIVE click the "Not working? switch server!" button
         console.log('[Server] Step 1: Looking for switch server button...');
-        let switchButtonFound = false;
 
-        const allElements = await page.$$('button, a, div, span, p');
-        for (const el of allElements) {
+        // Get all elements and find the switch server button
+        const switchElements = await page.$$('button, span, p, div, a');
+        let switchButtonClicked = false;
+
+        for (const el of switchElements) {
             try {
-                const text = await el.evaluate(e => e.textContent?.toLowerCase() || '');
-                if (text.includes('not working') || text.includes('switch server')) {
+                const text = await el.evaluate(e => (e.textContent || '').toLowerCase());
+                if (text.includes('not working') && text.includes('switch server') && text.length < 100) {
                     const box = await el.boundingBox();
-                    if (box && box.width > 30 && box.height > 10) {
-                        console.log('[Server] ✅ Found "switch server" button, clicking...');
-                        await el.click();
-                        await new Promise(r => setTimeout(r, 2000)); // Wait for server list to appear
-                        switchButtonFound = true;
+                    if (box && box.width > 50 && box.height > 10) {
+                        // Use NATIVE Puppeteer click - this triggers React events properly!
+                        console.log('[Server] ✅ Found switch server button, native clicking...');
+                        await el.click({ delay: 100 }); // Add slight delay for reliability
+                        switchButtonClicked = true;
                         break;
                     }
                 }
             } catch (e) { }
         }
 
-        if (!switchButtonFound) {
+        if (!switchButtonClicked) {
+            // Fallback: Try clicking with XPath selector
+            console.log('[Server] Trying XPath fallback for switch button...');
+            try {
+                const [btn] = await page.$x("//*[contains(text(), 'switch server')]");
+                if (btn) {
+                    await btn.click({ delay: 100 });
+                    switchButtonClicked = true;
+                    console.log('[Server] ✅ Clicked via XPath');
+                }
+            } catch (e) { }
+        }
+
+        if (!switchButtonClicked) {
             console.log('[Server] ⚠️ Could not find switch server button');
             return false;
         }
 
-        // Step 2: Find and click the specific server button (Server 2, Server 3, etc.)
-        console.log(`[Server] Step 2: Looking for Server ${serverNum} button...`);
-        await new Promise(r => setTimeout(r, 1000)); // Wait for buttons to render
+        // Wait for server list modal to appear
+        await new Promise(r => setTimeout(r, 2500));
 
-        let serverButtonFound = false;
-        const serverElements = await page.$$('button, a, div, span');
+        // Step 2: Find and NATIVE click the specific server button
+        console.log(`[Server] Step 2: Looking for Server ${serverNum} button...`);
+
+        const serverElements = await page.$$('button, div, span, a, p');
+        let serverButtonClicked = false;
+
         for (const el of serverElements) {
             try {
-                const text = await el.evaluate(e => e.textContent || '');
-                // Match "Server 2", "Server 2 - Most reliable", etc.
-                if (text.match(new RegExp(`^\\s*Server\\s+${serverNum}\\b`, 'i'))) {
+                const text = await el.evaluate(e => (e.textContent || '').trim());
+                // Match "Server 2", "Server 2 - Most reliable", etc. at the start
+                const pattern = new RegExp(`^Server\\s+${serverNum}(\\s|$|-)`, 'i');
+                if (pattern.test(text) && text.length < 100) {
                     const box = await el.boundingBox();
-                    if (box && box.width > 50 && box.height > 15) {
-                        console.log(`[Server] ✅ Found Server ${serverNum} button: "${text.trim().substring(0, 40)}"`);
-                        await el.click();
-                        await new Promise(r => setTimeout(r, 1500)); // Wait for confirmation dialog
-                        serverButtonFound = true;
+                    if (box && box.width > 50 && box.height > 15 && box.top > 0) {
+                        console.log(`[Server] ✅ Found Server ${serverNum} button: "${text.substring(0, 40)}"`);
+                        // NATIVE Puppeteer click!
+                        await el.click({ delay: 100 });
+                        serverButtonClicked = true;
                         break;
                     }
                 }
             } catch (e) { }
         }
 
-        if (!serverButtonFound) {
+        if (!serverButtonClicked) {
             console.log(`[Server] ⚠️ Could not find Server ${serverNum} button`);
-            return false;
+
+            // Fallback: Try XPath
+            try {
+                const xpath = `//*[starts-with(normalize-space(text()), 'Server ${serverNum}')]`;
+                const [serverBtn] = await page.$x(xpath);
+                if (serverBtn) {
+                    await serverBtn.click({ delay: 100 });
+                    serverButtonClicked = true;
+                    console.log(`[Server] ✅ Clicked Server ${serverNum} via XPath`);
+                }
+            } catch (e) { }
         }
 
-        // Step 3: Click "Confirm" button in the dialog
-        console.log('[Server] Step 3: Looking for Confirm button...');
-        await new Promise(r => setTimeout(r, 500));
+        if (!serverButtonClicked) {
+            console.log(`[Server] ⚠️ Server ${serverNum} button not found, trying coordinates...`);
+            // Server buttons appear at bottom of player area
+            // Server 2 = ~520px, Server 3 = ~560px, etc.
+            const yOffset = 500 + (serverNum - 2) * 45;
+            await page.mouse.click(350, yOffset);
+        }
 
-        let confirmFound = false;
+        // Wait for confirmation dialog
+        await new Promise(r => setTimeout(r, 2000));
+
+        // Step 3: Find and NATIVE click the "Confirm" button
+        console.log('[Server] Step 3: Looking for Confirm button...');
+
         const confirmElements = await page.$$('button, a, div[role="button"]');
+        let confirmClicked = false;
+
         for (const el of confirmElements) {
             try {
-                const text = await el.evaluate(e => e.textContent?.toLowerCase() || '');
-                if (text.includes('confirm') || text === 'ok' || text === 'yes') {
+                const text = await el.evaluate(e => (e.textContent || '').trim().toLowerCase());
+                if (text === 'confirm') {
                     const box = await el.boundingBox();
-                    if (box && box.width > 30 && box.height > 15) {
-                        console.log('[Server] ✅ Found Confirm button, clicking...');
-                        await el.click();
-                        await new Promise(r => setTimeout(r, 2000)); // Wait for server to load
-                        confirmFound = true;
+                    if (box && box.width > 40 && box.height > 20 && box.top > 0) {
+                        console.log('[Server] ✅ Found Confirm button, native clicking...');
+                        await el.click({ delay: 100 });
+                        confirmClicked = true;
                         break;
                     }
                 }
             } catch (e) { }
         }
 
-        if (!confirmFound) {
-            console.log('[Server] ⚠️ No confirmation dialog found (may not be needed)');
+        if (!confirmClicked) {
+            // Try XPath for Confirm button
+            try {
+                const [confirmBtn] = await page.$x("//button[contains(text(), 'Confirm')]");
+                if (confirmBtn) {
+                    await confirmBtn.click({ delay: 100 });
+                    confirmClicked = true;
+                    console.log('[Server] ✅ Clicked Confirm via XPath');
+                }
+            } catch (e) { }
         }
 
-        // Step 4: Click outside/dismiss any remaining modals
-        await page.mouse.click(640, 200);
+        if (confirmClicked) {
+            console.log('[Server] ✅ Confirmed server switch');
+            await new Promise(r => setTimeout(r, 3000)); // Wait for server to switch and load
+        } else {
+            console.log('[Server] ⚠️ No Confirm button found, pressing Enter...');
+            await page.keyboard.press('Enter');
+            await new Promise(r => setTimeout(r, 2000));
+        }
+
+        // Step 4: Dismiss any overlays and click play
+        await page.keyboard.press('Escape');
         await new Promise(r => setTimeout(r, 500));
 
-        console.log(`[Server] ✅ Switched to Server ${serverNum}`);
+        // Click play button to start the new server's stream
+        await tryClickPlay(page);
+
+        console.log(`[Server] ✅ Successfully switched to Server ${serverNum}`);
         return true;
 
     } catch (error) {
@@ -358,7 +418,7 @@ app.get('/api/mappletv/extract', async (req, res) => {
 
     try {
         // OPTIMIZATION: Use domcontentloaded instead of networkidle2 (much faster)
-        await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+        await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
         console.log(`[Extract] ✅ Page loaded in ${Date.now() - startTime}ms`);
 
         // Handle Cloudflare if present (only wait if actually blocked)
