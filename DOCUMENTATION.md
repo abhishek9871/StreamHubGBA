@@ -2,7 +2,7 @@
 
 ## Overview
 
-**FlixNest** (originally named "SteamHub" then "StreamHub") is a modern streaming web application built with **React 18**, **TypeScript**, **Vite**, and **TailwindCSS**. It aggregates movie and TV show content using the **TMDB API** for metadata and **vidsrc.cc** for streaming.
+**FlixNest** (originally named "SteamHub" then "StreamHub") is a modern streaming web application built with **React 18**, **TypeScript**, **Vite**, and **TailwindCSS**. It aggregates movie and TV show content using the **TMDB API** for metadata and **MappletTV** for high-quality M3U8 streaming (with VidSrc.cc as fallback).
 
 ---
 
@@ -18,6 +18,9 @@
 | Axios | 1.7.2 | HTTP Client |
 | React Toastify | 10.0.5 | Toast Notifications |
 | React Icons | ^5.5.0 | Icon Library (FontAwesome) |
+| **hls.js** | ^1.5.0 | HLS/M3U8 Video Playback |
+| **puppeteer-real-browser** | Latest | Backend: Stealth Browser Automation |
+| **Express** | ^4.18.0 | Backend: API Server |
 
 ---
 
@@ -31,6 +34,7 @@ FlixNest/
 │   │   │   ├── Button.tsx
 │   │   │   ├── ContentCard.tsx
 │   │   │   ├── ErrorBoundary.tsx
+│   │   │   ├── HLSPlayer.tsx       # NEW: HLS.js video player for M3U8 streams
 │   │   │   ├── Loader.tsx
 │   │   │   └── SkeletonCard.tsx
 │   │   ├── layout/          # Layout components
@@ -42,10 +46,10 @@ FlixNest/
 │   │       │   ├── HeroSection.tsx
 │   │       │   └── ContentCarousel.tsx
 │   │       ├── MovieDetail/
-│   │       │   ├── MovieDetail.tsx
+│   │       │   ├── MovieDetail.tsx  # Uses HLSPlayer for direct playback
 │   │       │   └── CastCard.tsx
 │   │       ├── TVDetail/
-│   │       │   ├── TVDetail.tsx
+│   │       │   ├── TVDetail.tsx     # Uses HLSPlayer for direct playback
 │   │       │   └── EpisodeCard.tsx
 │   │       ├── Settings/
 │   │       │   └── Settings.tsx
@@ -59,12 +63,18 @@ FlixNest/
 │   │   └── useLocalStorage.ts
 │   ├── services/            # API service modules
 │   │   ├── tmdb.ts
-│   │   ├── vidsrc.ts
+│   │   ├── vidsrc.ts        # Legacy iframe player (fallback)
+│   │   ├── mappletv.ts      # NEW: MappletTV M3U8 extraction service
 │   │   └── storage.ts
 │   ├── utils/               # Utility functions
-│   │   └── constants.ts
+│   │   ├── constants.ts
+│   │   └── adBlocker.ts     # Ad blocking utilities
 │   ├── types.ts             # TypeScript type definitions
 │   └── App.tsx              # Main application component
+├── backend/                 # NEW: Backend scraper server
+│   ├── mappletv-scraper.js  # Puppeteer-based M3U8 extractor + proxy
+│   ├── package.json
+│   └── MAPPLETV_EXTRACTION.md
 ├── index.html               # Main HTML file
 ├── index.tsx                # React entry point
 ├── package.json
@@ -79,21 +89,26 @@ FlixNest/
 
 ### Core Features
 1. **Home Page** - Hero carousel with trending content + multiple content carousels
-2. **Movie Details** - Full movie information, cast, similar movies, play button
-3. **TV Show Details** - Show info, season/episode selector, watch progress tracking
-4. **Video Player** - Embedded vidsrc.cc player for streaming
+2. **Movie Details** - Full movie information, cast, similar movies, inline HLS player
+3. **TV Show Details** - Show info, season/episode selector, watch progress tracking, inline HLS player
+4. **Video Player** - Two modes:
+   - **HLS Player** (Primary) - Direct M3U8 streaming via MappletTV with quality selection
+   - **VidSrc Iframe** (Fallback) - Embedded vidsrc.cc player
 5. **Search** - Multi-search for movies and TV shows
 6. **Watchlist** - Save movies/shows to personal watchlist
 7. **Episode Tracking** - Mark TV episodes as watched
 8. **Settings** - Clear watchlist and watch history
 
 ### Technical Features
+- **HLS.js Integration** - Direct M3U8 playback with quality switching
+- **Backend Proxy** - CORS bypass for M3U8 and video segments
 - **Lazy Loading** - Route-based code splitting for performance
 - **Error Boundary** - Graceful error handling
 - **localStorage Persistence** - Watchlist and watch history saved locally
 - **Cross-tab Sync** - localStorage changes sync across browser tabs
 - **Mobile Responsive** - Full mobile support with hamburger menu
 - **Toast Notifications** - User feedback for actions
+- **Ad Blocking** - Built-in ad and popup blocking system
 
 ---
 
@@ -125,9 +140,34 @@ FlixNest/
 - `getSeasonDetails()` - Get season episodes
 - `searchMulti()` - Search movies and TV shows
 
-### VidSrc Service (`src/services/vidsrc.ts`)
-- `getMovieStreamUrl()` - Get streaming URL for movies
-- `getTvStreamUrl()` - Get streaming URL for TV episodes
+### VidSrc Service (`src/services/vidsrc.ts`) - *Legacy*
+- `getMovieStreamUrl()` - Get streaming URL for movies (iframe-based)
+- `getTvStreamUrl()` - Get streaming URL for TV episodes (iframe-based)
+
+### MappletTV Service (`src/services/mappletv.ts`) - *Primary*
+The primary streaming service that extracts M3U8 URLs from MappletTV.
+
+**Functions:**
+- `getMappleTVStream(tmdbId, type, season?, episode?)` - Extract M3U8 stream URL
+- `getProxiedUrl(m3u8Url, referer)` - Generate proxied URL for CORS bypass
+
+**Response Interface:**
+```typescript
+interface MappleTVResponse {
+  success: boolean;
+  m3u8Url?: string;
+  referer?: string;
+  provider?: string;
+  qualities?: StreamQuality[];
+  subtitles?: Subtitle[];
+  error?: string;
+}
+```
+
+**Features:**
+- 2-minute timeout using AbortController
+- Verbose logging for debugging
+- Automatic URL proxying for CORS bypass
 
 ---
 
@@ -359,7 +399,215 @@ npm run preview
 |---------|-----|---------|
 | TMDB API | `https://api.themoviedb.org/3` | Movie/TV metadata |
 | TMDB Images | `https://image.tmdb.org/t/p` | Poster and backdrop images |
-| VidSrc | `https://vidsrc.cc/v2/embed` | Video streaming |
+| VidSrc | `https://vidsrc.cc/v2/embed` | Video streaming (legacy) |
+| **MappletTV** | `https://mappletv.uk` / `https://mapple.uk` | Primary video streaming (1080p) |
+| VixSrc | `https://vixsrc.to` | Backend video source for MappletTV |
+
+---
+
+## MappletTV Integration - Complete Guide
+
+### Overview
+
+FlixNest has been upgraded to use **MappletTV** as the primary streaming provider, replacing the legacy VidSrc iframe-based player. This provides:
+
+- **Direct HLS playback** using hls.js (no iframes)
+- **1080p, 720p, 480p** quality options
+- **Multi-language audio** (English, Italian, etc.)
+- **Subtitles** in 10+ languages
+- **No ads or popups** in the player interface
+
+### Architecture
+
+```
+┌─────────────────┐     ┌──────────────────────┐     ┌─────────────────┐
+│   Frontend      │     │   Backend Scraper    │     │   MappletTV     │
+│   (React)       │────▶│   (Node.js/Puppeteer)│────▶│   (mappletv.uk) │
+│                 │     │   Port 7860          │     │                 │
+├─────────────────┤     ├──────────────────────┤     └─────────────────┘
+│ MovieDetail.tsx │     │ /api/mappletv/extract│              │
+│ TVDetail.tsx    │     │ /api/proxy/m3u8      │◀─────────────┘
+│ HLSPlayer.tsx   │     │ /api/proxy/segment   │     M3U8 + Segments
+│ mappletv.ts     │     └──────────────────────┘
+└─────────────────┘
+```
+
+### Components
+
+#### 1. Backend Scraper (`backend/mappletv-scraper.js`)
+
+A Node.js Express server using `puppeteer-real-browser` to extract M3U8 URLs.
+
+**Why Puppeteer?**
+- MappletTV uses anti-bot protection that blocks simple HTTP requests
+- Puppeteer launches a real Chrome instance that bypasses these protections
+- Uses stealth plugins to avoid detection
+
+**API Endpoints:**
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/mappletv/extract` | GET | Extract M3U8 URL for a movie/TV show |
+| `/api/proxy/m3u8` | GET | Proxy M3U8 playlists and rewrite URLs |
+| `/api/proxy/segment` | GET | Proxy video/audio segments |
+| `/health` | GET | Health check |
+
+**Extraction Process:**
+1. Puppeteer navigates to `https://mappletv.uk/watch/{type}/{tmdbId}`
+2. Intercepts network requests for `.m3u8` files
+3. Captures the first M3U8 URL found (from `proxy.heistotron.uk`)
+4. Returns the URL along with referer and metadata
+
+**M3U8 Proxy Logic:**
+The proxy rewrites all URLs inside M3U8 playlists to go through our backend:
+- Lines after `#EXT-X-STREAM-INF:` → Proxied via `/api/proxy/m3u8`
+- `URI=` in `#EXT-X-MEDIA:` → Proxied via `/api/proxy/m3u8`
+- Segment files (`.ts`, `.aac`) → Proxied via `/api/proxy/segment`
+
+This is necessary because:
+- The original M3U8 URLs reference `proxy.heistotron.uk`
+- Browser CORS blocks direct requests to this domain
+- Our backend proxies all requests through `localhost:7860`
+
+**Running the Backend:**
+```bash
+cd backend
+npm install
+node mappletv-scraper.js
+# Server runs on http://localhost:7860
+```
+
+#### 2. Frontend Service (`src/services/mappletv.ts`)
+
+TypeScript service for communicating with the backend scraper.
+
+**Key Features:**
+- **AbortController** with 2-minute timeout to prevent hanging requests
+- **Verbose logging** with emoji prefixes for easy debugging
+- **URL proxying** via `getProxiedUrl()` function
+
+**Example Usage:**
+```typescript
+import mappleTVService from './services/mappletv';
+
+const response = await mappleTVService.getMappleTVStream(812583, 'movie');
+if (response.success && response.m3u8Url) {
+  const proxiedUrl = mappleTVService.getProxiedUrl(response.m3u8Url, response.referer);
+  // Use proxiedUrl with HLSPlayer
+}
+```
+
+#### 3. HLS Player Component (`src/components/common/HLSPlayer.tsx`)
+
+A custom video player built with **hls.js** for M3U8 playback.
+
+**Features:**
+- Quality switching (auto/manual)
+- Subtitle selection
+- Volume controls
+- Fullscreen support
+- Progress bar with buffering indicator
+- Play/pause/seek controls
+- Keyboard shortcuts
+
+**React Strict Mode Handling:**
+The component uses `requestAnimationFrame` + `setTimeout` to delay HLS initialization, preventing race conditions caused by React Strict Mode's double-mount behavior.
+
+**Props:**
+| Prop | Type | Description |
+|------|------|-------------|
+| `src` | string | M3U8 URL (proxied) |
+| `referer` | string | Original referer for backend proxy |
+| `subtitles` | Subtitle[] | Available subtitle tracks |
+| `onBack` | () => void | Callback when back button is pressed |
+| `autoPlay` | boolean | Auto-play on load |
+| `title` | string | Video title for display |
+
+#### 4. Movie/TV Detail Pages
+
+Both `MovieDetail.tsx` and `TVDetail.tsx` have been updated to:
+
+1. Call `mappleTVService.getMappleTVStream()` when "Play" is clicked
+2. Generate a proxied URL using `mappleTVService.getProxiedUrl()`
+3. Render `HLSPlayer` with the proxied URL
+4. Show loading state during extraction
+5. Show error state if extraction fails
+
+**Flow:**
+```
+User clicks "Play"
+       ↓
+setStreamLoading(true)
+       ↓
+mappleTVService.getMappleTVStream()
+       ↓
+Backend extracts M3U8 from MappletTV
+       ↓
+mappleTVService.getProxiedUrl()
+       ↓
+setHlsUrl(proxiedUrl)
+       ↓
+HLSPlayer renders with proxied URL
+       ↓
+hls.js loads manifest via /api/proxy/m3u8
+       ↓
+hls.js loads segments via /api/proxy/segment
+       ↓
+Video plays!
+```
+
+### Debugging
+
+#### Console Log Prefixes
+
+| Prefix | Source |
+|--------|--------|
+| `[MovieDetail]` | MovieDetail.tsx |
+| `[TVDetail]` | TVDetail.tsx |
+| `[MappletTV]` | mappletv.ts service |
+| `[HLSPlayer]` | HLSPlayer component |
+| `[HLS]` | hls.js events |
+| `[Extract]` | Backend scraper |
+| `[Proxy]` | Backend proxy |
+
+#### Common Issues
+
+**Issue: "Extracting stream..." hangs indefinitely**
+- Check backend is running on port 7860
+- Check network tab for failed requests
+- Verify MappletTV.uk is accessible
+
+**Issue: Video loads but doesn't play**
+- Check console for HLS errors
+- Verify M3U8 URLs are being proxied correctly
+- Check for CORS errors in network tab
+
+**Issue: React Strict Mode cleanup race condition**
+- The HLSPlayer now uses delayed initialization
+- Look for `[HLSPlayer] ⏰ Init callback fired` log
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `VITE_SCRAPER_URL` | Backend scraper URL | `http://localhost:7860` |
+
+### Current Status (December 2024)
+
+**Working:**
+- ✅ Backend M3U8 extraction from MappletTV
+- ✅ Backend proxy endpoints for M3U8 and segments
+- ✅ URL rewriting in M3U8 playlists
+- ✅ Frontend service with timeout and logging
+- ✅ HLSPlayer component with controls
+
+**In Progress:**
+- ⏳ HLS.js initialization timing with React Strict Mode
+- ⏳ Video playback after HLS setup
+
+**Known Issues:**
+- HLS.js `MEDIA_ATTACHED` event sometimes doesn't fire
+- React Strict Mode causes double-mount which disrupts HLS initialization
 
 ---
 

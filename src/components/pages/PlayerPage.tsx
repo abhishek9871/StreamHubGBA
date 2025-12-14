@@ -1,125 +1,163 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { tmdbService } from '../../services/tmdb';
+import { mappleTVService, StreamResponse, Subtitle } from '../../services/mappletv';
+import HLSPlayer from '../common/HLSPlayer';
 import Loader from '../common/Loader';
-import { FaArrowLeft } from 'react-icons/fa';
+import { FaArrowLeft, FaExclamationTriangle, FaSync } from 'react-icons/fa';
+
+type PlayerMode = 'loading' | 'hls' | 'error';
 
 const Player: React.FC = () => {
   const { type, id } = useParams<{ type: 'movie' | 'tv'; id: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  
-  const [streamUrl, setStreamUrl] = useState('');
-  const [loading, setLoading] = useState(true);
+
+  // State
+  const [mode, setMode] = useState<PlayerMode>('loading');
+  const [hlsUrl, setHlsUrl] = useState<string>('');
+  const [hlsReferer, setHlsReferer] = useState<string>('');
+  const [subtitles, setSubtitles] = useState<Subtitle[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const lastBlurTime = useRef<number>(0);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  
+  const [title, setTitle] = useState<string>('');
+  const [loadingMessage, setLoadingMessage] = useState<string>('Loading stream...');
+
+  const extractionStartTime = useRef<number>(0);
+
   const season = parseInt(searchParams.get('season') || '1', 10);
   const episode = parseInt(searchParams.get('episode') || '1', 10);
 
-  // Popup/Ad detection: When window loses focus (popup opened), refocus immediately
-  useEffect(() => {
-    const handleBlur = () => {
-      const now = Date.now();
-      // Debounce: only count as ad if blur happens within interaction context
-      if (now - lastBlurTime.current > 500) {
-        lastBlurTime.current = now;
-        
-        // Immediately try to refocus our window
-        setTimeout(() => {
-          window.focus();
-        }, 100);
-      }
-    };
+  // Main content loader
+  const loadContent = useCallback(async () => {
+    if (!id || (type !== 'movie' && type !== 'tv')) {
+      setError('Invalid content identifier.');
+      setMode('error');
+      return;
+    }
 
-    const handleVisibilityChange = () => {
-      // If tab becomes hidden due to popup, try to regain focus
-      if (document.hidden) {
-        setTimeout(() => window.focus(), 100);
-      }
-    };
+    setMode('loading');
+    setError(null);
+    setLoadingMessage('Fetching content details...');
+    extractionStartTime.current = Date.now();
 
-    window.addEventListener('blur', handleBlur);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    
-    return () => {
-      window.removeEventListener('blur', handleBlur);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, []);
-
-  useEffect(() => {
-    const loadContent = async () => {
-      setLoading(true);
-      setError(null);
-      if (!id || (type !== 'movie' && type !== 'tv')) {
-        setError('Invalid content identifier.');
-        setLoading(false);
-        return;
+    try {
+      // Get content details for title
+      if (type === 'movie') {
+        const details = await tmdbService.getMovieDetails(id);
+        setTitle(details.title || 'Movie');
+      } else {
+        const details = await tmdbService.getTVShowDetails(id);
+        setTitle(`${details.name || 'TV Show'} - S${season}E${episode}`);
       }
 
-      try {
-        if (type === 'movie') {
-          await tmdbService.getMovieDetails(id); // Validate ID before setting stream URL
-          setStreamUrl(`https://vidsrc.cc/v2/embed/movie/${id}?autoplay=1&autonext=1`);
-        } else { // type is 'tv'
-          await tmdbService.getTVShowDetails(id); // Validate ID
-          setStreamUrl(`https://vidsrc.cc/v2/embed/tv/${id}/${season}/${episode}?autoplay=1&autonext=1`);
-        }
-      } catch (err) {
-        console.error('Player error:', err);
-        setError('Content not found or failed to load.');
-      } finally {
-        setLoading(false);
-      }
-    };
+      // MappletTV HLS extraction
+      setLoadingMessage('Extracting stream (this may take up to 60 seconds)...');
+      console.log('[Player] 🎬 Attempting HLS extraction via MappletTV...');
+      console.log('[Player] TMDB ID:', id, 'Type:', type);
 
+      const streamResponse: StreamResponse = await mappleTVService.getStream(
+        id,
+        type,
+        type === 'tv' ? season : undefined,
+        type === 'tv' ? episode : undefined
+      );
+
+      const extractionTime = Date.now() - extractionStartTime.current;
+      console.log(`[Player] Extraction completed in ${extractionTime}ms`);
+      console.log('[Player] Response:', JSON.stringify(streamResponse, null, 2));
+
+      if (streamResponse.success && streamResponse.m3u8Url) {
+        console.log('[Player] ✅ HLS stream extracted successfully');
+        console.log('[Player] M3U8 URL:', streamResponse.m3u8Url);
+        console.log('[Player] Qualities:', streamResponse.qualities);
+        console.log('[Player] Subtitles:', streamResponse.subtitles?.length || 0);
+
+        setHlsUrl(streamResponse.m3u8Url);
+        setHlsReferer(streamResponse.referer || 'https://mapple.uk/');
+        setSubtitles(streamResponse.subtitles || []);
+        setMode('hls');
+      } else {
+        // Show error - no iframe fallback
+        console.error('[Player] ❌ HLS extraction failed:', streamResponse.error);
+        setError(streamResponse.error || 'Failed to extract stream. Please try again.');
+        setMode('error');
+      }
+
+    } catch (err) {
+      console.error('[Player] Error during extraction:', err);
+      setError(err instanceof Error ? err.message : 'An unexpected error occurred');
+      setMode('error');
+    }
+  }, [id, type, season, episode]);
+
+  // Retry extraction
+  const handleRetry = () => {
     loadContent();
-  }, [type, id, season, episode]);
+  };
 
-  if (loading) {
-    return (
-        <div className="flex items-center justify-center min-h-screen bg-bg-primary">
-            <Loader />
-        </div>
-    );
-  }
+  // Initial load
+  useEffect(() => {
+    loadContent();
+  }, [loadContent]);
 
-  if (error) {
+  // Render loading state
+  if (mode === 'loading') {
     return (
-      <div className="min-h-screen bg-bg-primary flex flex-col items-center justify-center text-center p-4">
-        <h2 className="text-2xl text-error mb-4">{error}</h2>
-        <button onClick={() => navigate(-1)} className="bg-accent-primary text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-red-700 transition-colors">
-          <FaArrowLeft /> Go Back
+      <div className="flex flex-col items-center justify-center min-h-screen bg-bg-primary text-white">
+        <Loader />
+        <p className="mt-4 text-text-secondary">{loadingMessage}</p>
+        <p className="mt-2 text-text-muted text-sm">Extracting highest quality source from MappletTV</p>
+
+        {/* Back button during loading */}
+        <button
+          onClick={() => navigate(-1)}
+          className="mt-8 bg-surface text-text-secondary px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-surface-hover hover:text-text-primary transition-colors"
+        >
+          <FaArrowLeft size={14} /> Cancel
         </button>
       </div>
     );
   }
 
+  // Render error state
+  if (mode === 'error') {
+    return (
+      <div className="min-h-screen bg-bg-primary flex flex-col items-center justify-center text-center p-4">
+        <div className="text-error text-5xl mb-4">
+          <FaExclamationTriangle />
+        </div>
+        <h2 className="text-2xl text-error mb-2">Stream Extraction Failed</h2>
+        <p className="text-text-secondary mb-6 max-w-md">{error || 'Failed to extract the video stream. The backend scraper might be unavailable.'}</p>
+        <div className="flex gap-4">
+          <button
+            onClick={handleRetry}
+            className="bg-accent-primary text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-red-700 transition-colors"
+          >
+            <FaSync /> Retry
+          </button>
+          <button
+            onClick={() => navigate(-1)}
+            className="bg-surface text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-surface-hover transition-colors"
+          >
+            <FaArrowLeft /> Go Back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Render HLS player
   return (
     <div className="min-h-screen bg-black flex items-center justify-center">
       <div className="relative w-full aspect-video max-w-screen-2xl">
-        {/* Video iframe - no overlay, full interactivity */}
-        <iframe
-          ref={iframeRef}
-          src={streamUrl}
-          className="absolute top-0 left-0 w-full h-full"
-          title="Video Player"
-          frameBorder="0"
-          allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
-          allowFullScreen
-          referrerPolicy="origin"
+        <HLSPlayer
+          src={hlsUrl}
+          referer={hlsReferer}
+          subtitles={subtitles}
+          onBack={() => navigate(-1)}
+          autoPlay={true}
+          title={title}
         />
-        
-        {/* Back button overlay - always visible in corner */}
-        <button 
-          onClick={() => navigate(-1)} 
-          className="absolute top-4 left-4 z-20 bg-surface/80 hover:bg-surface text-text-primary px-3 py-2 rounded-lg flex items-center gap-2 transition-colors backdrop-blur-sm"
-        >
-          <FaArrowLeft size={14} />
-          <span className="text-sm hidden sm:inline">Back</span>
-        </button>
       </div>
     </div>
   );

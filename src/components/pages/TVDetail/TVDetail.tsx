@@ -1,13 +1,15 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { tmdbService } from '../../../services/tmdb';
+import { mappleTVService, StreamResponse, Subtitle } from '../../../services/mappletv';
 import type { TVShowDetails, SeasonDetails } from '../../../types';
 import { TMDB_IMAGE_BASE_URL } from '../../../utils/constants';
 import { useWatchlist } from '../../../context/WatchlistContext';
 import { useWatchedEpisodes } from '../../../context/WatchedEpisodesContext';
 import Loader from '../../common/Loader';
+import HLSPlayer from '../../common/HLSPlayer';
 import ContentCarousel from '../Home/ContentCarousel';
-import { FaPlay, FaPlus, FaCheck, FaStar, FaTimes, FaCheckCircle, FaChevronDown, FaChevronLeft, FaChevronRight } from 'react-icons/fa';
+import { FaPlay, FaPlus, FaCheck, FaStar, FaTimes, FaCheckCircle, FaChevronDown, FaChevronLeft, FaChevronRight, FaSpinner } from 'react-icons/fa';
 
 const TVDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -26,7 +28,12 @@ const TVDetail: React.FC = () => {
   const { addToWatchlist, removeFromWatchlist, isInWatchlist } = useWatchlist();
   const { isEpisodeWatched, toggleEpisodeWatched } = useWatchedEpisodes();
 
-  // Ad blocker is now handled globally in App.tsx
+  // Stream state
+  const [streamLoading, setStreamLoading] = useState(false);
+  const [streamError, setStreamError] = useState<string | null>(null);
+  const [hlsUrl, setHlsUrl] = useState<string>('');
+  const [hlsReferer, setHlsReferer] = useState<string>('');
+  const [subtitles, setSubtitles] = useState<Subtitle[]>([]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -51,10 +58,6 @@ const TVDetail: React.FC = () => {
           const initialSeason = data.seasons.find(s => s.season_number > 0)?.season_number || 1;
           setSelectedSeason(initialSeason);
         }
-        // Start playback after data loads if autoplay is set
-        if (autoplay) {
-          setIsPlaying(true);
-        }
       } catch (err) {
         setError('Failed to fetch show details.');
         console.error(err);
@@ -63,7 +66,7 @@ const TVDetail: React.FC = () => {
       }
     };
     fetchShow();
-  }, [id, autoplay]);
+  }, [id]);
 
   useEffect(() => {
     const fetchSeason = async () => {
@@ -80,6 +83,63 @@ const TVDetail: React.FC = () => {
     };
     fetchSeason();
   }, [id, show, selectedSeason]);
+
+  // Handle stream extraction
+  const extractStream = useCallback(async (season: number, episode: number) => {
+    if (!id) return;
+
+    setStreamLoading(true);
+    setStreamError(null);
+    setHlsUrl('');
+
+    console.log('[TVDetail] 🎬 Starting stream extraction for TV:', id, 'S' + season + 'E' + episode);
+
+    try {
+      const streamResponse: StreamResponse = await mappleTVService.getStream(id, 'tv', season, episode);
+
+      console.log('[TVDetail] Response:', streamResponse);
+
+      if (streamResponse.success && streamResponse.m3u8Url) {
+        console.log('[TVDetail] ✅ Stream extracted successfully');
+        console.log('[TVDetail] Original M3U8:', streamResponse.m3u8Url);
+
+        // Proxy the M3U8 URL through our backend to avoid CORS issues
+        const proxiedUrl = mappleTVService.getProxiedUrl(
+          streamResponse.m3u8Url,
+          streamResponse.referer || 'https://mapple.uk/'
+        );
+        console.log('[TVDetail] Proxied M3U8:', proxiedUrl);
+
+        setHlsUrl(proxiedUrl);
+        setHlsReferer(streamResponse.referer || 'https://mapple.uk/');
+        setSubtitles(streamResponse.subtitles || []);
+        setStreamLoading(false);
+      } else {
+        console.error('[TVDetail] ❌ Stream extraction failed:', streamResponse.error);
+        setStreamError(streamResponse.error || 'Failed to extract stream');
+        setStreamLoading(false);
+      }
+    } catch (err) {
+      console.error('[TVDetail] Error:', err);
+      setStreamError(err instanceof Error ? err.message : 'Failed to connect to scraper');
+      setStreamLoading(false);
+    }
+  }, [id]);
+
+  // Play episode
+  const playEpisode = useCallback((season: number, episode: number) => {
+    setCurrentEpisode({ season, episode });
+    setIsPlaying(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    extractStream(season, episode);
+  }, [extractStream]);
+
+  // Auto-play if URL has autoplay param
+  useEffect(() => {
+    if (autoplay && show && !isPlaying) {
+      playEpisode(selectedSeason, 1);
+    }
+  }, [autoplay, show, isPlaying, selectedSeason, playEpisode]);
 
   if (loading) {
     return (
@@ -99,7 +159,6 @@ const TVDetail: React.FC = () => {
 
   const inWatchlist = isInWatchlist(show.id);
   const firstAirYear = show.first_air_date ? new Date(show.first_air_date).getFullYear() : 'N/A';
-  const streamUrl = `https://vidsrc.cc/v2/embed/tv/${show.id}/${currentEpisode.season}/${currentEpisode.episode}?autoplay=1&autonext=1`;
 
   const handleWatchlistToggle = () => {
     if (inWatchlist) {
@@ -109,25 +168,13 @@ const TVDetail: React.FC = () => {
     }
   };
 
-  const playEpisode = (season: number, episode: number) => {
-    setCurrentEpisode({ season, episode });
-    setIsPlaying(true);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
   // Episode navigation logic
   const totalEpisodes = seasonDetails?.episodes?.length || 0;
   const hasPreviousEpisode = currentEpisode.episode > 1;
   const hasNextEpisode = currentEpisode.episode < totalEpisodes;
-  
+
   const currentEpisodeData = seasonDetails?.episodes?.find(
     ep => ep.episode_number === currentEpisode.episode
-  );
-  const nextEpisodeData = seasonDetails?.episodes?.find(
-    ep => ep.episode_number === currentEpisode.episode + 1
-  );
-  const prevEpisodeData = seasonDetails?.episodes?.find(
-    ep => ep.episode_number === currentEpisode.episode - 1
   );
 
   const goToPreviousEpisode = () => {
@@ -142,27 +189,66 @@ const TVDetail: React.FC = () => {
     }
   };
 
+  const closePlayer = () => {
+    setIsPlaying(false);
+    setHlsUrl('');
+    setStreamError(null);
+  };
+
   return (
     <div className="min-h-screen bg-bg-primary">
       {/* Netflix-style Hero Section */}
       <div className="relative w-full" style={{ height: isPlaying ? '56.25vw' : '70vh', maxHeight: isPlaying ? '80vh' : '70vh' }}>
-        
+
         {isPlaying ? (
           <>
-            {/* Inline Video Player */}
-            <iframe
-              src={streamUrl}
-              className="absolute inset-0 w-full h-full"
-              title={show.name}
-              frameBorder="0"
-              allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
-              allowFullScreen
-              referrerPolicy="origin"
-            />
-            
+            {/* Stream Loading State */}
+            {streamLoading && (
+              <div className="absolute inset-0 bg-black flex flex-col items-center justify-center z-10">
+                <div className="text-white text-4xl animate-spin mb-4">
+                  <FaSpinner />
+                </div>
+                <p className="text-white text-lg">Extracting stream...</p>
+                <p className="text-text-secondary text-sm mt-2">This may take up to 60 seconds</p>
+              </div>
+            )}
+
+            {/* Stream Error State */}
+            {streamError && !streamLoading && (
+              <div className="absolute inset-0 bg-black flex flex-col items-center justify-center z-10">
+                <p className="text-red-500 text-lg mb-4">{streamError}</p>
+                <div className="flex gap-4">
+                  <button
+                    onClick={() => extractStream(currentEpisode.season, currentEpisode.episode)}
+                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded"
+                  >
+                    Retry
+                  </button>
+                  <button
+                    onClick={closePlayer}
+                    className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* HLS Player */}
+            {hlsUrl && !streamLoading && !streamError && (
+              <HLSPlayer
+                src={hlsUrl}
+                referer={hlsReferer}
+                subtitles={subtitles}
+                onBack={closePlayer}
+                autoPlay={true}
+                title={`${show.name} - S${currentEpisode.season}E${currentEpisode.episode}`}
+              />
+            )}
+
             {/* Close button overlay */}
             <button
-              onClick={() => setIsPlaying(false)}
+              onClick={closePlayer}
               className="absolute top-4 right-4 z-20 p-3 rounded-full bg-surface/80 hover:bg-surface text-text-primary transition-colors"
             >
               <FaTimes size={18} />
@@ -179,11 +265,11 @@ const TVDetail: React.FC = () => {
                 loading="eager"
               />
             )}
-            
+
             {/* Gradient Overlays */}
             <div className="absolute inset-0 bg-gradient-to-r from-bg-primary via-bg-primary/60 to-transparent" />
             <div className="absolute inset-0 bg-gradient-to-t from-bg-primary via-transparent to-bg-primary/30" />
-            
+
             {/* Content Overlay */}
             <div className="absolute inset-0 flex items-center">
               <div className="container mx-auto px-4 md:px-8 lg:px-16">
@@ -192,11 +278,11 @@ const TVDetail: React.FC = () => {
                   <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold font-heading text-white drop-shadow-lg">
                     {show.name}
                   </h1>
-                  
+
                   {/* Metadata Row */}
                   <div className="flex items-center gap-3 text-sm md:text-base text-white/90">
                     <span className="flex items-center gap-1 text-green-400 font-semibold">
-                      <FaStar className="text-yellow-400" /> {show.vote_average.toFixed(1)}
+                      <span className="text-yellow-400"><FaStar /></span> {show.vote_average.toFixed(1)}
                     </span>
                     <span className="text-white/60">|</span>
                     <span>{firstAirYear}</span>
@@ -204,7 +290,7 @@ const TVDetail: React.FC = () => {
                     <span>{show.number_of_seasons} Season{show.number_of_seasons !== 1 ? 's' : ''}</span>
                     <span className="px-2 py-0.5 border border-white/40 rounded text-xs">HD</span>
                   </div>
-                  
+
                   {/* Genres */}
                   <div className="flex flex-wrap gap-2">
                     {show.genres.slice(0, 4).map(genre => (
@@ -214,12 +300,12 @@ const TVDetail: React.FC = () => {
                       </span>
                     ))}
                   </div>
-                  
+
                   {/* Overview */}
                   <p className="text-white/80 text-sm md:text-base line-clamp-3 max-w-xl">
                     {show.overview}
                   </p>
-                  
+
                   {/* Action Buttons */}
                   <div className="flex items-center gap-3 pt-4">
                     <button
@@ -253,7 +339,7 @@ const TVDetail: React.FC = () => {
                 S{currentEpisode.season} E{currentEpisode.episode}
                 {currentEpisodeData && <span className="hidden sm:inline"> • {currentEpisodeData.name}</span>}
               </p>
-              
+
               {/* Navigation Buttons */}
               <div className="flex items-center gap-3">
                 {/* Previous Episode Button */}
@@ -266,7 +352,7 @@ const TVDetail: React.FC = () => {
                     <span>E{currentEpisode.episode - 1}</span>
                   </button>
                 )}
-                
+
                 {/* Next Episode Button */}
                 {hasNextEpisode && (
                   <button
@@ -285,7 +371,7 @@ const TVDetail: React.FC = () => {
 
       {/* Content Section */}
       <div className="container mx-auto px-4 md:px-8 lg:px-16 py-8">
-        
+
         {/* Episodes Section */}
         <div className="mb-12">
           <div className="flex items-center justify-between mb-6">
@@ -298,12 +384,11 @@ const TVDetail: React.FC = () => {
                   className="flex items-center gap-3 bg-transparent border-2 border-white/30 hover:border-white/50 rounded px-4 py-2.5 text-white font-medium transition-all duration-200 min-w-[140px] justify-between"
                 >
                   <span>Season {selectedSeason}</span>
-                  <FaChevronDown 
-                    className={`transition-transform duration-200 ${isSeasonDropdownOpen ? 'rotate-180' : ''}`} 
-                    size={12} 
-                  />
+                  <span className={`transition-transform duration-200 ${isSeasonDropdownOpen ? 'rotate-180' : ''}`}>
+                    <FaChevronDown size={12} />
+                  </span>
                 </button>
-                
+
                 {/* Dropdown menu */}
                 {isSeasonDropdownOpen && (
                   <div className="absolute top-full right-0 mt-1 bg-[#1a1a1a] border border-white/10 rounded-md shadow-2xl z-50 min-w-[160px] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
@@ -315,15 +400,14 @@ const TVDetail: React.FC = () => {
                             setSelectedSeason(season.season_number);
                             setIsSeasonDropdownOpen(false);
                           }}
-                          className={`w-full text-left px-4 py-3 text-sm transition-colors duration-150 flex items-center justify-between ${
-                            selectedSeason === season.season_number
-                              ? 'bg-white/10 text-white font-medium'
-                              : 'text-gray-300 hover:bg-white/5 hover:text-white'
-                          }`}
+                          className={`w-full text-left px-4 py-3 text-sm transition-colors duration-150 flex items-center justify-between ${selectedSeason === season.season_number
+                            ? 'bg-white/10 text-white font-medium'
+                            : 'text-gray-300 hover:bg-white/5 hover:text-white'
+                            }`}
                         >
                           <span>Season {season.season_number}</span>
                           {selectedSeason === season.season_number && (
-                            <FaCheck size={12} className="text-white" />
+                            <span className="text-white"><FaCheck size={12} /></span>
                           )}
                         </button>
                       ))}
@@ -333,13 +417,13 @@ const TVDetail: React.FC = () => {
               </div>
             )}
           </div>
-          
+
           {seasonLoading ? (
             <div className="flex justify-center items-center h-48"><Loader /></div>
           ) : (
             <div className="space-y-3">
               {seasonDetails?.episodes?.map(episode => (
-                <div 
+                <div
                   key={episode.id}
                   className="flex gap-4 p-3 rounded-lg bg-surface/50 hover:bg-surface transition-colors group cursor-pointer"
                   onClick={() => playEpisode(selectedSeason, episode.episode_number)}
@@ -359,10 +443,10 @@ const TVDetail: React.FC = () => {
                       </div>
                     )}
                     <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <FaPlay className="text-white text-2xl" />
+                      <span className="text-white text-2xl"><FaPlay /></span>
                     </div>
                   </div>
-                  
+
                   {/* Episode Info */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2">
@@ -379,11 +463,10 @@ const TVDetail: React.FC = () => {
                           e.stopPropagation();
                           toggleEpisodeWatched(String(show.id), selectedSeason, episode.episode_number);
                         }}
-                        className={`p-2 rounded-full transition-colors ${
-                          isEpisodeWatched(String(show.id), selectedSeason, episode.episode_number)
-                            ? 'text-green-500'
-                            : 'text-text-muted hover:text-white'
-                        }`}
+                        className={`p-2 rounded-full transition-colors ${isEpisodeWatched(String(show.id), selectedSeason, episode.episode_number)
+                          ? 'text-green-500'
+                          : 'text-text-muted hover:text-white'
+                          }`}
                       >
                         <FaCheckCircle size={20} />
                       </button>
