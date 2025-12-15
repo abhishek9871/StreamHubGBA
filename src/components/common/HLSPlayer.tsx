@@ -35,6 +35,7 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
     const hlsRef = useRef<Hls | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const progressRef = useRef<HTMLDivElement>(null);
+    const settingsRef = useRef<HTMLDivElement>(null);
     const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const doubleTapTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const seekingRef = useRef(false);
@@ -94,29 +95,34 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
             hls = new Hls({
                 enableWorker: true,
                 lowLatencyMode: false,
-                maxBufferLength: 15,
-                maxMaxBufferLength: 30,
-                maxBufferSize: 30 * 1000 * 1000,
-                backBufferLength: 15,
-                maxBufferHole: 0.5,
-                startLevel: -1,
-                abrEwmaDefaultEstimate: 1000000,
-                abrBandWidthFactor: 0.95,
-                abrBandWidthUpFactor: 0.7,
+                // ULTRA-FAST START: Minimal initial buffering
+                maxBufferLength: 5,              // Only 5s ahead (was 15s) - start playing ASAP
+                maxMaxBufferLength: 15,          // Max 15s (was 30s)
+                maxBufferSize: 15 * 1000 * 1000, // 15MB (was 30MB)
+                backBufferLength: 10,            // 10s behind
+                maxBufferHole: 0.3,              // Smaller gaps ok
+                // ABR Settings for fast start
+                startLevel: 0,                   // Start with LOWEST quality for instant start
+                abrEwmaDefaultEstimate: 500000,  // 500kbps initial estimate (conservative)
+                abrBandWidthFactor: 0.9,
+                abrBandWidthUpFactor: 0.5,       // Slow to upgrade quality
                 abrMaxWithRealBitrate: true,
-                fragLoadingTimeOut: 20000,
-                fragLoadingMaxRetry: 4,
-                fragLoadingRetryDelay: 1000,
-                levelLoadingTimeOut: 15000,
-                levelLoadingMaxRetry: 4,
-                manifestLoadingTimeOut: 15000,
-                manifestLoadingMaxRetry: 4,
+                // Fast loading
+                fragLoadingTimeOut: 10000,       // 10s timeout (was 20s)
+                fragLoadingMaxRetry: 3,
+                fragLoadingRetryDelay: 500,      // 500ms retry delay
+                levelLoadingTimeOut: 10000,
+                levelLoadingMaxRetry: 3,
+                manifestLoadingTimeOut: 10000,
+                manifestLoadingMaxRetry: 3,
+                // Immediate start
                 startPosition: 0,
                 autoStartLoad: true,
                 capLevelToPlayerSize: false,
-                testBandwidth: true,
+                testBandwidth: false,            // Skip bandwidth test - start immediately
                 progressive: true,
-                nudgeMaxRetry: 5,
+                // Recovery
+                nudgeMaxRetry: 3,
                 nudgeOffset: 0.1,
                 debug: false,
                 xhrSetup: (xhr) => { xhr.withCredentials = false; }
@@ -138,9 +144,21 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
                 })).sort((a, b) => b.height - a.height);
                 setHlsLevels(levels);
 
+                // Start with lowest quality for instant playback, then switch to ABR
                 if (data.levels.length > 0 && hls) {
-                    hls.nextLevel = -1;
-                    setCurrentQuality(-1);
+                    // Find lowest quality level
+                    const lowestLevel = levels[levels.length - 1]?.index || 0;
+                    hls.startLevel = lowestLevel;
+                    hls.currentLevel = lowestLevel;
+                    setCurrentQuality(-1); // Show "Auto" in UI
+
+                    // After 3 seconds, switch to ABR for quality upgrade
+                    setTimeout(() => {
+                        if (hlsRef.current) {
+                            hlsRef.current.nextLevel = -1; // Enable ABR
+                            console.log('[HLS] Switched to ABR mode for quality upgrade');
+                        }
+                    }, 3000);
                 }
 
                 setIsLoading(false);
@@ -289,7 +307,7 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
         };
     }, []);
 
-    // Load subtitles
+    // Load subtitles - fetch and create blob URLs to bypass CORS
     useEffect(() => {
         const video = videoRef.current;
         if (!video || subtitles.length === 0) return;
@@ -300,25 +318,64 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
         const existingTracks = video.querySelectorAll('track');
         existingTracks.forEach(track => track.remove());
 
-        // Add subtitle tracks
-        subtitles.forEach((sub) => {
-            const track = document.createElement('track');
-            track.kind = 'subtitles';
-            track.label = sub.label;
-            track.srclang = sub.language || 'en';
-            track.src = sub.file;
-            track.default = false;
-            video.appendChild(track);
-        });
+        const blobUrls: string[] = [];
 
-        // Hide all initially
-        for (let i = 0; i < video.textTracks.length; i++) {
-            video.textTracks[i].mode = 'hidden';
-        }
+        // Fetch each subtitle and create blob URL
+        const loadSubtitles = async () => {
+            for (let i = 0; i < subtitles.length; i++) {
+                const sub = subtitles[i];
+                try {
+                    console.log(`[HLSPlayer] Fetching subtitle: ${sub.label}`);
+                    const response = await fetch(sub.file);
+                    if (!response.ok) {
+                        console.log(`[HLSPlayer] Failed to fetch subtitle ${sub.label}: ${response.status}`);
+                        continue;
+                    }
+
+                    const text = await response.text();
+
+                    // Check if it's valid VTT content, if not try to convert
+                    let vttContent = text;
+                    if (!text.startsWith('WEBVTT')) {
+                        // Try to convert SRT to VTT
+                        if (text.match(/^\d+\r?\n\d{2}:\d{2}:\d{2},\d{3}/m)) {
+                            vttContent = 'WEBVTT\n\n' + text.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
+                        } else {
+                            // Assume it's VTT without header
+                            vttContent = 'WEBVTT\n\n' + text;
+                        }
+                    }
+
+                    const blob = new Blob([vttContent], { type: 'text/vtt' });
+                    const blobUrl = URL.createObjectURL(blob);
+                    blobUrls.push(blobUrl);
+
+                    const track = document.createElement('track');
+                    track.kind = 'subtitles';
+                    track.label = sub.label;
+                    track.srclang = sub.language || 'en';
+                    track.src = blobUrl;
+                    track.default = false;
+                    video.appendChild(track);
+                    console.log(`[HLSPlayer] Added subtitle: ${sub.label}`);
+                } catch (e) {
+                    console.log(`[HLSPlayer] Error loading subtitle ${sub.label}:`, e);
+                }
+            }
+
+            // Hide all initially
+            for (let i = 0; i < video.textTracks.length; i++) {
+                video.textTracks[i].mode = 'hidden';
+            }
+        };
+
+        loadSubtitles();
 
         return () => {
             const tracks = video.querySelectorAll('track');
             tracks.forEach(track => track.remove());
+            // Revoke blob URLs
+            blobUrls.forEach(url => URL.revokeObjectURL(url));
         };
     }, [subtitles]);
 
@@ -328,6 +385,23 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
         document.addEventListener('fullscreenchange', onChange);
         return () => document.removeEventListener('fullscreenchange', onChange);
     }, []);
+
+    // Click outside handler for settings menu
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (showSettings && settingsRef.current && !settingsRef.current.contains(e.target as Node)) {
+                setShowSettings(false);
+                setSettingsTab('main');
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        document.addEventListener('touchstart', handleClickOutside as any);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+            document.removeEventListener('touchstart', handleClickOutside as any);
+        };
+    }, [showSettings]);
 
     // Keyboard shortcuts
     useEffect(() => {
@@ -384,15 +458,16 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
         return () => document.removeEventListener('keydown', handleKeyDown);
     }, [duration]);
 
-    // Auto-hide controls
+    // Auto-hide controls - don't hide when settings menu is open
     const showControlsTemporarily = useCallback(() => {
         setShowControls(true);
-        setShowSettings(false);
         if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
-        if (isPlaying) {
-            controlsTimeoutRef.current = setTimeout(() => setShowControls(false), 3000);
+        if (isPlaying && !showSettings) {
+            controlsTimeoutRef.current = setTimeout(() => {
+                if (!showSettings) setShowControls(false);
+            }, 3000);
         }
-    }, [isPlaying]);
+    }, [isPlaying, showSettings]);
 
     // Player actions
     const togglePlay = useCallback(() => {
@@ -796,9 +871,12 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
                             )}
 
                             {/* Settings */}
-                            <div className="relative">
+                            <div className="relative" ref={settingsRef}>
                                 <button
-                                    onClick={() => setShowSettings(!showSettings)}
+                                    onClick={() => {
+                                        setShowSettings(!showSettings);
+                                        if (!showSettings) setSettingsTab('main');
+                                    }}
                                     className="p-2 sm:p-2.5 rounded-full hover:bg-white/10 text-white transition-colors"
                                 >
                                     <FaCog size={isMobile ? 18 : 20} />

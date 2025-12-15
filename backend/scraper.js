@@ -647,27 +647,9 @@ app.get('/api/mappletv/extract', async (req, res) => {
 
                     const effectiveReferer = capturedReferer || 'https://mapple.uk/';
 
-                    // Combine subtitles from network captures AND M3U8 parsing
-                    let allSubtitles = [...capturedSubtitles];
-
-                    // Also try to fetch from M3U8 (but don't wait too long)
-                    try {
-                        const m3u8Subs = await Promise.race([
-                            fetchSubtitles(foundMedia, effectiveReferer),
-                            new Promise(resolve => setTimeout(() => resolve([]), 3000)) // 3s timeout
-                        ]);
-                        if (m3u8Subs && m3u8Subs.length > 0) {
-                            // Add M3U8 subs that aren't already captured
-                            m3u8Subs.forEach(sub => {
-                                if (!allSubtitles.find(s => s.file === sub.file)) {
-                                    allSubtitles.push(sub);
-                                }
-                            });
-                        }
-                    } catch (e) {
-                        console.log('[Extract] ⚠️ Could not fetch M3U8 subtitles:', e.message);
-                    }
-
+                    // Use only network-captured subtitles (no extra fetch needed)
+                    // This saves 1-3 seconds of extraction time
+                    const allSubtitles = [...capturedSubtitles];
                     console.log(`[Extract] 📝 Total subtitles found: ${allSubtitles.length}`);
 
                     return res.json({
