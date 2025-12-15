@@ -179,20 +179,59 @@ The frontend fetches movie/TV metadata from TMDB API. The TMDB API key and proxy
 
 ---
 
-## 🛠️ Development Commands
+## 🌐 Frontend: Cloudflare Pages Deployment
+
+### Live Production URL
+```
+https://flixnestvault.pages.dev
+```
+
+### Project Details
+| Property | Value |
+|----------|-------|
+| Project Name | `flixnestvault` |
+| Production Branch | `main` |
+| Hosting | Cloudflare Pages |
+
+---
+
+## 🛠️ Development & Deployment Commands
 
 ```bash
-# Frontend
+# =====================
+# FRONTEND DEVELOPMENT
+# =====================
 cd c:\Users\VASU\Downloads\Projects\FlixNest
 npm run dev
 
-# Backend (local testing)
+# =====================
+# FRONTEND PRODUCTION BUILD & DEPLOY (Cloudflare Pages)
+# =====================
+cd c:\Users\VASU\Downloads\Projects\FlixNest
+
+# Step 1: Build the frontend
+npm run build
+
+# Step 2: Deploy to Cloudflare Pages production
+npx wrangler pages deploy dist --project-name flixnestvault --branch main
+
+# =====================
+# BACKEND (Local Testing)
+# =====================
 cd backend
 node scraper.js
 
-# Deploy to Hugging Face
-# Upload: Dockerfile, scraper.js, package.json, package-lock.json, README.md
+# =====================
+# BACKEND DEPLOYMENT (Hugging Face Spaces)
+# =====================
+# Upload these files to HF Spaces:
+# - Dockerfile
+# - scraper.js
+# - package.json
+# - package-lock.json
+# - README.md
 ```
+
 
 ---
 
@@ -203,6 +242,10 @@ node scraper.js
 3. **Testing extraction**: `https://abhishek1996-fluxnest.hf.space/api/mappletv/extract?tmdbId=487670&type=movie`
 4. **Health check**: `https://abhishek1996-fluxnest.hf.space/health`
 
+**Live URLs:**
+- **Frontend (Production)**: `https://flixnestvault.pages.dev`
+- **Backend (API)**: `https://abhishek1996-fluxnest.hf.space`
+
 **Current State** (December 2025):
 - Extraction: OPTIMIZED - 15s server timeout, 100ms polling
 - Playback: OPTIMIZED - Fast start, smooth seeking
@@ -212,6 +255,7 @@ node scraper.js
 - Speed: 0.25x - 2x playback speed control
 - Mobile: Double-tap seeking, touch controls, responsive
 - Keyboard: Full shortcut support (Space, J/K/L, arrows, M, F, C, 0-9)
+- **Deployment**: Cloudflare Pages (frontend) + Hugging Face Spaces (backend)
 
 **Key Settings** (for reference):
 ```javascript
@@ -231,5 +275,7 @@ node scraper.js
 }
 ```
 
-**To Deploy Backend Changes:**
-Upload `backend/scraper.js` to Hugging Face Spaces
+**To Deploy:**
+- **Frontend**: `npm run build && npx wrangler pages deploy dist --project-name flixnestvault --branch main`
+- **Backend**: Upload `backend/scraper.js` to Hugging Face Spaces
+
