@@ -4,8 +4,8 @@
  * Connects to mappletv-scraper.js backend to extract M3U8 streaming URLs.
  */
 
-// Backend scraper URL
-const SCRAPER_BASE_URL = (import.meta as any).env?.VITE_SCRAPER_URL || 'http://localhost:7860';
+// Backend scraper URL - defaults to HF production, can be overridden by env var for local dev
+const SCRAPER_BASE_URL = (import.meta as any).env?.VITE_SCRAPER_URL || 'https://abhishek1996-fluxnest.hf.space';
 
 export interface StreamQuality {
     resolution: string;
@@ -118,8 +118,8 @@ export async function checkScraperHealth(): Promise<boolean> {
  */
 export function getProxiedM3U8Url(originalUrl: string, referer?: string): string {
     // OPTIMIZATION: Skip proxying for URLs that already handle CORS
-    // MappletTV uses heistotron.uk proxies which already support CORS
-    const corsEnabledDomains = ['heistotron.uk', 'source.heistotron.uk', 'proxy.heistotron.uk'];
+    // Only proxy.heistotron.uk actually supports CORS (source.heistotron.uk does NOT)
+    const corsEnabledDomains = ['proxy.heistotron.uk'];
     const urlLower = originalUrl.toLowerCase();
 
     if (corsEnabledDomains.some(domain => urlLower.includes(domain))) {

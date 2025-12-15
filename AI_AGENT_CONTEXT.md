@@ -110,19 +110,29 @@ CMD ["xvfb-run", "--auto-servernum", "--server-args=-screen 0 1280x800x24", "nod
   - Positioned above controls
 
 ### Proxy Bypass Optimization (`src/services/mappletv.ts`)
-MappletTV returns URLs from CORS-enabled domains (heistotron.uk). The frontend **skips double-proxying** for these:
+⚠️ **CRITICAL**: Only `proxy.heistotron.uk` supports CORS. `source.heistotron.uk` does NOT!
 ```typescript
-const corsEnabledDomains = ['heistotron.uk', 'source.heistotron.uk', 'proxy.heistotron.uk'];
+// CORRECT - Only proxy.heistotron.uk has CORS
+const corsEnabledDomains = ['proxy.heistotron.uk'];
 if (corsEnabledDomains.some(domain => urlLower.includes(domain))) {
     return originalUrl; // Use directly, skip our proxy
 }
+// All other URLs (including source.heistotron.uk) MUST be proxied through HF backend
 ```
 
-### Environment Variable
-```
+### Environment Variables
+**Development** (`.env`):
+```bash
 VITE_SCRAPER_URL=https://abhishek1996-fluxnest.hf.space
 ```
-Set in `.env` file at project root.
+
+**Production** (`.env.production`) - ⚠️ CRITICAL:
+```bash
+# This file is used during production builds (npm run build)
+VITE_SCRAPER_URL=https://abhishek1996-fluxnest.hf.space
+```
+
+**Important**: Both files must have the HF backend URL. The `.env.production` file overrides the default during builds.
 
 ---
 
@@ -176,6 +186,21 @@ The frontend fetches movie/TV metadata from TMDB API. The TMDB API key and proxy
 ### 5. HTTPS Protocol Detection on HF
 **Cause**: HF reverse proxy reports `http` to backend.
 **Solution**: Force HTTPS when `host.includes('hf.space')` in proxy URL generation.
+
+### 6. Production Playback Fails / Wrong Backend URL (FIXED)
+**Cause**: `.env.production` had old Cloudflare tunnel URL or wrong backend URL.
+**Solution**: Always check `.env.production` file - it overrides during `npm run build`:
+```bash
+# .env.production MUST have:
+VITE_SCRAPER_URL=https://abhishek1996-fluxnest.hf.space
+```
+
+### 7. CORS Error from source.heistotron.uk (FIXED)
+**Cause**: Incorrectly assumed all heistotron.uk domains support CORS.
+**Solution**: Only `proxy.heistotron.uk` has CORS. Update `src/services/mappletv.ts`:
+```typescript
+const corsEnabledDomains = ['proxy.heistotron.uk']; // NOT source.heistotron.uk!
+```
 
 ---
 
@@ -243,12 +268,13 @@ node scraper.js
 4. **Health check**: `https://abhishek1996-fluxnest.hf.space/health`
 
 **Live URLs:**
-- **Frontend (Production)**: `https://flixnestvault.pages.dev`
-- **Backend (API)**: `https://abhishek1996-fluxnest.hf.space`
+- **Frontend (Production)**: `https://flixnestvault.pages.dev` ✅ DEPLOYED
+- **Backend (API)**: `https://abhishek1996-fluxnest.hf.space` ✅ RUNNING
 
-**Current State** (December 2025):
+**Current State** (December 15, 2025):
+- ✅ **PRODUCTION READY** - Both frontend and backend deployed and working
 - Extraction: OPTIMIZED - 15s server timeout, 100ms polling
-- Playback: OPTIMIZED - Fast start, smooth seeking
+- Playback: OPTIMIZED - Fast start, smooth seeking, CORS fixed
 - Subtitles: Network interception + M3U8 parsing
 - Player UI: MODERN - Netflix-style with mobile support
 - Quality: ABR mode with manual selector
@@ -278,4 +304,15 @@ node scraper.js
 **To Deploy:**
 - **Frontend**: `npm run build && npx wrangler pages deploy dist --project-name flixnestvault --branch main`
 - **Backend**: Upload `backend/scraper.js` to Hugging Face Spaces
+
+**Deployment Checklist** (Before deploying frontend):
+1. ✅ Check `.env.production` has correct HF backend URL
+2. ✅ Check `src/services/mappletv.ts` has `corsEnabledDomains = ['proxy.heistotron.uk']` only
+3. ✅ Run `npm run build` to verify no errors
+4. ✅ Deploy with wrangler
+
+**If playback fails after deployment:**
+- Check browser console for CORS errors
+- Verify `.env.production` has `VITE_SCRAPER_URL=https://abhishek1996-fluxnest.hf.space`
+- Verify only `proxy.heistotron.uk` in CORS bypass list
 
