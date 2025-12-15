@@ -65,22 +65,26 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
             hls = new Hls({
                 enableWorker: true,
                 lowLatencyMode: false,           // Disable for smoother playback
-                backBufferLength: 60,            // Keep 60s of back buffer
-                maxBufferLength: 60,             // Buffer up to 60s ahead
-                maxMaxBufferLength: 120,         // Allow up to 2 minutes buffer
-                maxBufferSize: 60 * 1000 * 1000, // 60MB buffer
-                maxBufferHole: 0.5,              // Max 0.5s hole allowed
+                backBufferLength: 30,            // Reduced: Keep 30s of back buffer
+                maxBufferLength: 30,             // Reduced: Buffer 30s ahead (faster start)
+                maxMaxBufferLength: 60,          // Reduced: Max 1 minute buffer
+                maxBufferSize: 30 * 1000 * 1000, // Reduced: 30MB buffer
+                maxBufferHole: 1.0,              // Increased: Allow 1s hole (more tolerant)
                 startLevel: -1,                  // Will set to highest in MANIFEST_PARSED
                 autoStartLoad: true,
                 startPosition: 0,
                 capLevelToPlayerSize: false,     // Don't limit quality
                 debug: false,
-                // Faster fragment loading for quality changes
+                // More tolerant fragment loading
                 fragLoadingTimeOut: 60000,       // 60s timeout for fragments
-                fragLoadingMaxRetry: 6,          // Retry 6 times
-                fragLoadingRetryDelay: 500,      // 500ms between retries
+                fragLoadingMaxRetry: 10,         // Increased: Retry 10 times
+                fragLoadingRetryDelay: 1000,     // Increased: 1s between retries
                 levelLoadingTimeOut: 30000,      // 30s for level loading
-                levelLoadingMaxRetry: 4,
+                levelLoadingMaxRetry: 6,         // Increased retries
+                manifestLoadingTimeOut: 30000,   // 30s for manifest
+                manifestLoadingMaxRetry: 6,
+                // Buffer stall recovery
+                nudgeMaxRetry: 10,               // More retries for buffer nudge
                 xhrSetup: (xhr) => {
                     xhr.withCredentials = false;
                 }
@@ -135,7 +139,10 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
                 // Non-fatal errors - just log, don't show to user
                 if (!data.fatal) {
                     // Buffer stall is common during quality changes, ignore it
-                    if (data.details !== 'bufferStalledError' && data.details !== 'bufferSeekOverHole') {
+                    if (data.details !== 'bufferStalledError' &&
+                        data.details !== 'bufferSeekOverHole' &&
+                        data.details !== 'bufferAppendError' &&
+                        data.details !== 'bufferNudgeOnStall') {
                         console.log('[HLS] ⚠️ Non-fatal:', data.details);
                     }
                     return;
@@ -148,9 +155,9 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
                         if (networkRetries < MAX_RETRIES) {
                             networkRetries++;
                             console.log(`[HLS] Network error, retry ${networkRetries}/${MAX_RETRIES}...`);
-                            setTimeout(() => hls?.startLoad(), 1000);
+                            setTimeout(() => hls?.startLoad(), 2000); // Increased delay
                         } else {
-                            setError('Network error - please try again');
+                            setError('Network error - please check connection and retry');
                             setIsLoading(false);
                         }
                         break;
@@ -159,8 +166,14 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
                         hls?.recoverMediaError();
                         break;
                     default:
-                        setError(`Playback error: ${data.details}`);
-                        setIsLoading(false);
+                        // For other errors, try recovery first
+                        console.log('[HLS] Unknown error, attempting recovery...');
+                        hls?.recoverMediaError();
+                        setTimeout(() => {
+                            if (!videoRef.current?.paused) return; // Already playing
+                            setError(`Playback error: ${data.details}`);
+                            setIsLoading(false);
+                        }, 3000);
                         break;
                 }
             });

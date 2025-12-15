@@ -82,13 +82,73 @@ async function getBrowser() {
 }
 
 /**
+ * Pre-warm the browser by visiting MappletTV homepage
+ * This establishes cookies, passes Cloudflare, and caches assets
+ */
+async function warmBrowser() {
+    console.log('[Warmup] 🔥 Pre-warming browser...');
+    const warmupStart = Date.now();
+
+    try {
+        const { browser, page } = await getBrowser();
+
+        // Navigate to MappletTV homepage to establish session
+        console.log('[Warmup] 📍 Navigating to MappletTV homepage...');
+        await page.goto('https://mappletv.uk/', {
+            waitUntil: 'domcontentloaded',
+            timeout: 60000
+        });
+
+        // Check for Cloudflare and handle it
+        const title = await page.title();
+        if (title.includes('Just a moment') || title.includes('Cloudflare')) {
+            console.log('[Warmup] 🛡️ Cloudflare detected, waiting for challenge...');
+            // Human-like mouse movements
+            await page.mouse.move(100, 100);
+            await page.mouse.move(300, 200);
+            await page.mouse.move(200, 300);
+            await page.mouse.click(300, 300);
+            // Wait for Cloudflare to complete
+            await new Promise(r => setTimeout(r, 5000));
+
+            // Wait for page to change
+            await page.waitForFunction(() => {
+                return !document.title.includes('Just a moment') && !document.title.includes('Cloudflare');
+            }, { timeout: 30000 }).catch(() => { });
+        }
+
+        // Scroll and interact to simulate real user
+        await page.evaluate(() => {
+            window.scrollTo(0, 300);
+        });
+        await new Promise(r => setTimeout(r, 1000));
+
+        // Navigate back to blank to be ready for actual requests
+        await page.goto('about:blank', { timeout: 5000 }).catch(() => { });
+
+        const warmupTime = Date.now() - warmupStart;
+        console.log(`[Warmup] ✅ Browser warmed up in ${warmupTime}ms`);
+        console.log('[Warmup] 🍪 Cookies and session established');
+
+        return true;
+    } catch (error) {
+        console.error('[Warmup] ⚠️ Warmup failed:', error.message);
+        console.log('[Warmup] Will warm up on first request instead');
+        return false;
+    }
+}
+
+/**
  * Build MappletTV URL for content
+ * Movie: https://mapple.uk/watch/movie/{tmdbId}
+ * TV: https://mapple.uk/watch/tv/{tmdbId}-{season}-{episode}
  */
 function getMappletTVUrl(tmdbId, type, season, episode) {
     if (type === 'movie') {
         return `https://mappletv.uk/watch/movie/${tmdbId}?autoPlay=true`;
     } else {
-        return `https://mappletv.uk/watch/tv/${tmdbId}?s=${season}&e=${episode}&autoPlay=true`;
+        // Correct format: /watch/tv/{tmdbId}-{season}-{episode}
+        return `https://mappletv.uk/watch/tv/${tmdbId}-${season}-${episode}?autoPlay=true`;
     }
 }
 
@@ -137,40 +197,50 @@ async function trySwitchServer(page, serverNum) {
     console.log(`[Server] 🔄 Switching to server ${serverNum}...`);
 
     try {
-        // Step 1: Find and NATIVE click the "Not working? switch server!" button
+        // Step 1: Click "switch server" button
+        // Selector: //button[contains(., "switch server")]
         console.log('[Server] Step 1: Looking for switch server button...');
 
-        // Get all elements and find the switch server button
-        const switchElements = await page.$$('button, span, p, div, a');
         let switchButtonClicked = false;
 
-        for (const el of switchElements) {
+        // Try precise verified XPath first
+        const switchXpaths = [
+            "//button[contains(., 'switch server')]",
+            "//button[contains(., 'Not working')]",
+            "//span[contains(., 'switch server')]/ancestor::button", // If text is in span
+            "//div[contains(., 'switch server') and @role='button']"
+        ];
+
+        for (const xpath of switchXpaths) {
             try {
-                const text = await el.evaluate(e => (e.textContent || '').toLowerCase());
-                if (text.includes('not working') && text.includes('switch server') && text.length < 100) {
-                    const box = await el.boundingBox();
-                    if (box && box.width > 50 && box.height > 10) {
-                        // Use NATIVE Puppeteer click - this triggers React events properly!
-                        console.log('[Server] ✅ Found switch server button, native clicking...');
-                        await el.click({ delay: 100 }); // Add slight delay for reliability
+                const buttons = await page.$x(xpath);
+                for (const btn of buttons) {
+                    // double check visibility
+                    const box = await btn.boundingBox();
+                    if (box && box.width > 30 && box.height > 10) {
+                        console.log(`[Server] ✅ Found switch button via XPath: ${xpath}`);
+                        await btn.click({ delay: 100 });
                         switchButtonClicked = true;
                         break;
                     }
                 }
+                if (switchButtonClicked) break;
             } catch (e) { }
         }
 
         if (!switchButtonClicked) {
-            // Fallback: Try clicking with XPath selector
-            console.log('[Server] Trying XPath fallback for switch button...');
-            try {
-                const [btn] = await page.$x("//*[contains(text(), 'switch server')]");
-                if (btn) {
+            console.log('[Server] ⚠️ Could not find switch server button via XPath, trying text fallback...');
+            // Fallback: search all buttons text
+            const allButtons = await page.$$('button');
+            for (const btn of allButtons) {
+                const text = await btn.evaluate(e => e.textContent?.toLowerCase() || '');
+                if (text.includes('switch server') && text.includes('not working')) {
                     await btn.click({ delay: 100 });
                     switchButtonClicked = true;
-                    console.log('[Server] ✅ Clicked via XPath');
+                    console.log('[Server] ✅ Found switch button via text scan');
+                    break;
                 }
-            } catch (e) { }
+            }
         }
 
         if (!switchButtonClicked) {
@@ -178,111 +248,80 @@ async function trySwitchServer(page, serverNum) {
             return false;
         }
 
-        // Wait for server list modal to appear
-        await new Promise(r => setTimeout(r, 2500));
+        // Wait for menu to open
+        await new Promise(r => setTimeout(r, 2000));
 
-        // Step 2: Find and NATIVE click the specific server button
+        // Step 2: Click Server X button
+        // Selector verified: //button[starts-with(normalize-space(.), "Server X")]
         console.log(`[Server] Step 2: Looking for Server ${serverNum} button...`);
 
-        const serverElements = await page.$$('button, div, span, a, p');
         let serverButtonClicked = false;
+        // Logic: "Server 2" should be at start of string to avoid matching "Server 24"
+        const serverXpaths = [
+            `//button[starts-with(normalize-space(.), "Server ${serverNum}")]`,
+            `//button[contains(., "Server ${serverNum}")]` // Fallback
+        ];
 
-        for (const el of serverElements) {
+        for (const xpath of serverXpaths) {
             try {
-                const text = await el.evaluate(e => (e.textContent || '').trim());
-                // Match "Server 2", "Server 2 - Most reliable", etc. at the start
-                const pattern = new RegExp(`^Server\\s+${serverNum}(\\s|$|-)`, 'i');
-                if (pattern.test(text) && text.length < 100) {
-                    const box = await el.boundingBox();
-                    if (box && box.width > 50 && box.height > 15 && box.top > 0) {
-                        console.log(`[Server] ✅ Found Server ${serverNum} button: "${text.substring(0, 40)}"`);
-                        // NATIVE Puppeteer click!
-                        await el.click({ delay: 100 });
+                const buttons = await page.$x(xpath);
+                for (const btn of buttons) {
+                    const text = await btn.evaluate(e => e.textContent?.trim() || '');
+
+                    // Verify correct number (avoid Server 24 matching Server 2)
+                    // Check if it's "Server 2" exactly or "Server 2 -" or "Server 2 "
+                    const regex = new RegExp(`^Server\\s*${serverNum}(\\s|$|-)`, 'i');
+                    if (regex.test(text)) {
+                        console.log(`[Server] ✅ Found Server ${serverNum} button: "${text.substring(0, 30)}..."`);
+                        await btn.click({ delay: 100 });
                         serverButtonClicked = true;
                         break;
                     }
                 }
+                if (serverButtonClicked) break;
             } catch (e) { }
         }
 
         if (!serverButtonClicked) {
-            console.log(`[Server] ⚠️ Could not find Server ${serverNum} button`);
-
-            // Fallback: Try XPath
-            try {
-                const xpath = `//*[starts-with(normalize-space(text()), 'Server ${serverNum}')]`;
-                const [serverBtn] = await page.$x(xpath);
-                if (serverBtn) {
-                    await serverBtn.click({ delay: 100 });
-                    serverButtonClicked = true;
-                    console.log(`[Server] ✅ Clicked Server ${serverNum} via XPath`);
-                }
-            } catch (e) { }
-        }
-
-        if (!serverButtonClicked) {
-            console.log(`[Server] ⚠️ Server ${serverNum} button not found, trying coordinates...`);
+            console.log('[Server] ⚠️ Server button not found via XPath, trying legacy coordinates...');
             // Server buttons appear at bottom of player area
-            // Server 2 = ~520px, Server 3 = ~560px, etc.
             const yOffset = 500 + (serverNum - 2) * 45;
             await page.mouse.click(350, yOffset);
         }
 
-        // Wait for confirmation dialog
-        await new Promise(r => setTimeout(r, 2000));
+        // Wait for any confirm dialog
+        await new Promise(r => setTimeout(r, 1500));
 
-        // Step 3: Find and NATIVE click the "Confirm" button
-        console.log('[Server] Step 3: Looking for Confirm button...');
+        // Step 3: Click Confirm/Try Again if present
+        try {
+            const confirmXpaths = [
+                "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'confirm')]",
+                "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'try again')]", // For "Verification failed" etc
+                "//button[contains(., 'Yes')]"
+            ];
 
-        const confirmElements = await page.$$('button, a, div[role="button"]');
-        let confirmClicked = false;
-
-        for (const el of confirmElements) {
-            try {
-                const text = await el.evaluate(e => (e.textContent || '').trim().toLowerCase());
-                if (text === 'confirm') {
-                    const box = await el.boundingBox();
-                    if (box && box.width > 40 && box.height > 20 && box.top > 0) {
-                        console.log('[Server] ✅ Found Confirm button, native clicking...');
-                        await el.click({ delay: 100 });
-                        confirmClicked = true;
-                        break;
+            for (const xpath of confirmXpaths) {
+                const [btn] = await page.$x(xpath);
+                if (btn) {
+                    const box = await btn.boundingBox();
+                    if (box && box.width > 0 && box.height > 0) {
+                        console.log(`[Server] ✅ Found popup/confirm button via XPath: ${xpath}`);
+                        await btn.click({ delay: 100 });
+                        await new Promise(r => setTimeout(r, 2000));
                     }
                 }
-            } catch (e) { }
-        }
+            }
+        } catch (e) { }
 
-        if (!confirmClicked) {
-            // Try XPath for Confirm button
-            try {
-                const [confirmBtn] = await page.$x("//button[contains(text(), 'Confirm')]");
-                if (confirmBtn) {
-                    await confirmBtn.click({ delay: 100 });
-                    confirmClicked = true;
-                    console.log('[Server] ✅ Clicked Confirm via XPath');
-                }
-            } catch (e) { }
-        }
-
-        if (confirmClicked) {
-            console.log('[Server] ✅ Confirmed server switch');
-            await new Promise(r => setTimeout(r, 3000)); // Wait for server to switch and load
-        } else {
-            console.log('[Server] ⚠️ No Confirm button found, pressing Enter...');
-            await page.keyboard.press('Enter');
-            await new Promise(r => setTimeout(r, 2000));
-        }
-
-        // Step 4: Dismiss any overlays and click play
+        // Escape to close menu if still open
         await page.keyboard.press('Escape');
         await new Promise(r => setTimeout(r, 500));
 
-        // Click play button to start the new server's stream
+        // Ensure play is clicked again
         await tryClickPlay(page);
 
-        console.log(`[Server] ✅ Successfully switched to Server ${serverNum}`);
+        console.log(`[Server] ✅ Switching flow complete for Server ${serverNum}`);
         return true;
-
     } catch (error) {
         console.error('[Server] ❌ Error switching server:', error.message);
         return false;
@@ -417,8 +456,14 @@ app.get('/api/mappletv/extract', async (req, res) => {
     const startTime = Date.now();
 
     try {
-        // OPTIMIZATION: Use domcontentloaded instead of networkidle2 (much faster)
-        await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        // CLEANUP: Navigate to blank page first to clear any leftover state
+        try {
+            await page.goto('about:blank', { timeout: 5000 });
+            await new Promise(r => setTimeout(r, 500));
+        } catch (e) { /* ignore */ }
+
+        // OPTIMIZATION: Use domcontentloaded and increased timeout
+        await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
         console.log(`[Extract] ✅ Page loaded in ${Date.now() - startTime}ms`);
 
         // Handle Cloudflare if present (only wait if actually blocked)
@@ -440,7 +485,7 @@ app.get('/api/mappletv/extract', async (req, res) => {
 
         // Multi-server approach: Try primary server first, then fallback servers
         const MAX_SERVERS = 4;  // Try up to 4 servers
-        const SERVER_TIMEOUT = 15000;  // 15 seconds per server
+        const SERVER_TIMEOUT = 30000;  // 30 seconds per server (increased for slow sites)
         const POLL_INTERVAL = 200;
 
         for (let serverNum = 1; serverNum <= MAX_SERVERS; serverNum++) {
@@ -556,6 +601,13 @@ app.get('/api/proxy/m3u8', async (req, res) => {
 
     try {
         let content = response.data;
+
+        // Add CORS headers
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Headers', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+        res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+        res.setHeader('Cache-Control', 'no-cache');
 
         // Rewrite all URLs in the M3U8 to go through our proxy
         // We need to detect if a URL is for a playlist (.m3u8) or segment (.ts/.mp4/.aac etc)
@@ -706,8 +758,17 @@ app.get('/health', (req, res) => {
 });
 
 // Start server
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, '0.0.0.0', async () => {
     console.log(`\n🎬 MappletTV Scraper running on port ${PORT}`);
     console.log(`   Extract: GET /api/mappletv/extract?tmdbId=XXXXX&type=movie`);
     console.log(`   Health:  GET /health\n`);
+
+    // Pre-warm browser on startup (async, don't block server start)
+    setTimeout(() => {
+        warmBrowser().then(success => {
+            if (success) {
+                console.log('[Server] 🚀 Ready for fast extractions!');
+            }
+        });
+    }, 1000);
 });
