@@ -5,7 +5,7 @@
  */
 
 // Backend scraper URL
-const SCRAPER_BASE_URL = import.meta.env.VITE_SCRAPER_URL || 'http://localhost:7860';
+const SCRAPER_BASE_URL = (import.meta as any).env?.VITE_SCRAPER_URL || 'http://localhost:7860';
 
 export interface StreamQuality {
     resolution: string;
@@ -82,7 +82,7 @@ export async function getMappleTVStream(
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
-        const data = await response.json();
+        const data: StreamResponse = await response.json();
         console.log('[MappletTV] ✅ Response:', JSON.stringify(data).substring(0, 300));
         return data;
     } catch (error) {
@@ -114,8 +114,19 @@ export async function checkScraperHealth(): Promise<boolean> {
 
 /**
  * Get proxied M3U8 URL for CORS bypass
+ * Skips proxying if the URL is already from a known CORS-enabled domain
  */
 export function getProxiedM3U8Url(originalUrl: string, referer?: string): string {
+    // OPTIMIZATION: Skip proxying for URLs that already handle CORS
+    // MappletTV uses heistotron.uk proxies which already support CORS
+    const corsEnabledDomains = ['heistotron.uk', 'source.heistotron.uk', 'proxy.heistotron.uk'];
+    const urlLower = originalUrl.toLowerCase();
+
+    if (corsEnabledDomains.some(domain => urlLower.includes(domain))) {
+        console.log('[MappletTV] 🚀 Using direct URL (already CORS-enabled):', originalUrl.substring(0, 60) + '...');
+        return originalUrl;
+    }
+
     const params = new URLSearchParams({ url: originalUrl });
     if (referer) {
         params.append('referer', referer);

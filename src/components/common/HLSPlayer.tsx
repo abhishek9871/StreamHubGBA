@@ -65,26 +65,34 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
             hls = new Hls({
                 enableWorker: true,
                 lowLatencyMode: false,           // Disable for smoother playback
-                backBufferLength: 30,            // Reduced: Keep 30s of back buffer
-                maxBufferLength: 30,             // Reduced: Buffer 30s ahead (faster start)
-                maxMaxBufferLength: 60,          // Reduced: Max 1 minute buffer
-                maxBufferSize: 30 * 1000 * 1000, // Reduced: 30MB buffer
-                maxBufferHole: 1.0,              // Increased: Allow 1s hole (more tolerant)
-                startLevel: -1,                  // Will set to highest in MANIFEST_PARSED
+                backBufferLength: 30,            // Keep 30s of back buffer
+                maxBufferLength: 60,             // Buffer 60s ahead for smoother playback
+                maxMaxBufferLength: 120,         // Max 2 minute buffer
+                maxBufferSize: 60 * 1000 * 1000, // 60MB buffer
+                maxBufferHole: 2.0,              // Allow 2s hole (very tolerant)
+                startLevel: -1,                  // Let ABR choose (faster start)
                 autoStartLoad: true,
                 startPosition: 0,
                 capLevelToPlayerSize: false,     // Don't limit quality
                 debug: false,
                 // More tolerant fragment loading
-                fragLoadingTimeOut: 60000,       // 60s timeout for fragments
-                fragLoadingMaxRetry: 10,         // Increased: Retry 10 times
-                fragLoadingRetryDelay: 1000,     // Increased: 1s between retries
-                levelLoadingTimeOut: 30000,      // 30s for level loading
-                levelLoadingMaxRetry: 6,         // Increased retries
-                manifestLoadingTimeOut: 30000,   // 30s for manifest
-                manifestLoadingMaxRetry: 6,
+                fragLoadingTimeOut: 120000,      // 120s timeout for fragments
+                fragLoadingMaxRetry: 15,         // Many retries
+                fragLoadingRetryDelay: 500,      // Quick retries
+                levelLoadingTimeOut: 60000,      // 60s for level loading
+                levelLoadingMaxRetry: 10,        // Many retries
+                manifestLoadingTimeOut: 60000,   // 60s for manifest
+                manifestLoadingMaxRetry: 10,
+                keyLoadPolicy: {
+                    default: {
+                        maxTimeToFirstByteMs: 60000,
+                        maxLoadTimeMs: 120000,
+                        timeoutRetry: { maxNumRetry: 10, retryDelayMs: 500, maxRetryDelayMs: 5000 },
+                        errorRetry: { maxNumRetry: 10, retryDelayMs: 500, maxRetryDelayMs: 5000 }
+                    }
+                },
                 // Buffer stall recovery
-                nudgeMaxRetry: 10,               // More retries for buffer nudge
+                nudgeMaxRetry: 20,               // More retries for buffer nudge
                 xhrSetup: (xhr) => {
                     xhr.withCredentials = false;
                 }
@@ -109,14 +117,16 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
                 })).sort((a, b) => b.height - a.height);
                 setHlsLevels(levels);
 
-                // SET HIGHEST QUALITY: Find the highest resolution level
+                // OPTIMIZATION: Let ABR choose quality for faster start
+                // Instead of forcing 1080p, we let it start at best guess and adapt
+                // User can switch to 1080p manually if they want
                 if (data.levels.length > 0 && hls) {
-                    const highestLevel = data.levels.reduce((maxIdx, level, idx, arr) =>
-                        level.height > arr[maxIdx].height ? idx : maxIdx, 0);
-                    hls.currentLevel = highestLevel;
-                    hls.nextLevel = highestLevel;
-                    setCurrentQuality(highestLevel);
-                    console.log(`[HLS] 🎯 Starting at highest quality: ${data.levels[highestLevel].height}p (level ${highestLevel})`);
+                    // Enable ABR (automatic bitrate selection) for optimal experience
+                    hls.nextLevel = -1; // ABR mode
+                    // Set to show what ABR selected
+                    const selectedLevel = hls.startLevel !== -1 ? hls.startLevel : 0;
+                    setCurrentQuality(selectedLevel);
+                    console.log(`[HLS] 🎯 ABR mode enabled, ${data.levels.length} quality levels available`);
                 }
 
                 setIsLoading(false);
