@@ -330,8 +330,10 @@ async function trySwitchServer(page, serverNum) {
 
 /**
  * Parse subtitles from M3U8 content
+ * @param {string} m3u8Content - The M3U8 manifest content
+ * @param {string} baseUrl - The base URL for resolving relative paths
  */
-function parseSubtitles(m3u8Content) {
+function parseSubtitles(m3u8Content, baseUrl = '') {
     const subtitles = [];
     const lines = m3u8Content.split('\n');
 
@@ -342,16 +344,54 @@ function parseSubtitles(m3u8Content) {
             const uriMatch = line.match(/URI="([^"]+)"/);
 
             if (nameMatch && uriMatch) {
+                let subtitleUrl = uriMatch[1];
+
+                // Resolve relative URLs
+                if (!subtitleUrl.startsWith('http')) {
+                    try {
+                        subtitleUrl = new URL(subtitleUrl, baseUrl).href;
+                    } catch (e) {
+                        console.log('[Subtitles] Could not resolve URL:', subtitleUrl);
+                    }
+                }
+
                 subtitles.push({
                     label: nameMatch[1],
-                    language: langMatch ? langMatch[1] : 'unknown',
-                    file: uriMatch[1]
+                    language: langMatch ? langMatch[1] : 'en',
+                    file: subtitleUrl
                 });
             }
         }
     }
 
+    console.log(`[Subtitles] Found ${subtitles.length} subtitle tracks`);
     return subtitles;
+}
+
+/**
+ * Fetch M3U8 content and extract subtitles
+ */
+async function fetchSubtitles(m3u8Url, referer) {
+    try {
+        console.log('[Subtitles] Fetching M3U8 for subtitle extraction:', m3u8Url.substring(0, 80) + '...');
+
+        const response = await axios.get(m3u8Url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': referer || 'https://mapple.uk/',
+                'Origin': 'https://mapple.uk'
+            },
+            timeout: 15000
+        });
+
+        const content = response.data;
+        const subtitles = parseSubtitles(content, m3u8Url);
+
+        return subtitles;
+    } catch (error) {
+        console.log('[Subtitles] Failed to fetch M3U8 for subtitles:', error.message);
+        return [];
+    }
 }
 
 /**
@@ -500,13 +540,19 @@ app.get('/api/mappletv/extract', async (req, res) => {
 
                     page.off('response', responseHandler);
 
+                    // Fetch subtitles from the M3U8 content
+                    const effectiveReferer = capturedReferer || 'https://mapple.uk/';
+                    console.log('[Extract] 📝 Fetching subtitles...');
+                    const subtitles = await fetchSubtitles(foundMedia, effectiveReferer);
+
                     return res.json({
                         success: true,
                         m3u8Url: foundMedia,
-                        referer: capturedReferer || 'https://mapple.uk/',
+                        referer: effectiveReferer,
                         provider: 'mappletv',
                         server: serverNum,
-                        extractionTime: totalTime
+                        extractionTime: totalTime,
+                        subtitles: subtitles
                     });
                 }
 
@@ -746,6 +792,42 @@ app.get('/api/proxy/segment', async (req, res) => {
     }
     console.error('[Proxy] Segment Error after 3 attempts:', lastError.message);
     res.status(500).send('Proxy Error');
+});
+
+/**
+ * Proxy endpoint for subtitle files (VTT, SRT, etc.)
+ */
+app.get('/api/proxy/subtitle', async (req, res) => {
+    const { url, referer } = req.query;
+    if (!url) return res.status(400).send('No URL provided');
+
+    const decodedUrl = decodeURIComponent(url);
+    const effectiveReferer = referer ? decodeURIComponent(referer) : 'https://mapple.uk/';
+
+    try {
+        const response = await axios.get(decodedUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': effectiveReferer,
+                'Origin': new URL(effectiveReferer).origin
+            },
+            timeout: 30000,
+            responseType: 'text'
+        });
+
+        // Set appropriate content type for subtitles
+        const contentType = decodedUrl.includes('.vtt') ? 'text/vtt' :
+                           decodedUrl.includes('.srt') ? 'text/plain' :
+                           response.headers['content-type'] || 'text/plain';
+
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Headers', '*');
+        res.setHeader('Content-Type', contentType);
+        res.send(response.data);
+    } catch (e) {
+        console.error('[Proxy] Subtitle Error:', e.message);
+        res.status(500).send('Subtitle proxy error');
+    }
 });
 
 /**

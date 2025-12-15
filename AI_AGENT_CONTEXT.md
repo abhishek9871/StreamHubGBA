@@ -12,7 +12,7 @@
 |-----------|------------|----------|
 | Frontend | React + Vite + TypeScript | `c:\Users\VASU\Downloads\Projects\FlixNest\src\` |
 | Backend Scraper | Node.js + Puppeteer | Deployed on Hugging Face Spaces |
-| Video Player | HLS.js | `src/components/common/HLSPlayer.tsx` |
+| Video Player | HLS.js (optimized) | `src/components/common/HLSPlayer.tsx` |
 
 ---
 
@@ -26,10 +26,11 @@ https://abhishek1996-fluxnest.hf.space
 ### Endpoints
 | Endpoint | Purpose |
 |----------|---------|
-| `GET /api/mappletv/extract?tmdbId=XXX&type=movie` | Extract M3U8 for movie |
-| `GET /api/mappletv/extract?tmdbId=XXX&type=tv&season=1&episode=1` | Extract M3U8 for TV |
+| `GET /api/mappletv/extract?tmdbId=XXX&type=movie` | Extract M3U8 + subtitles for movie |
+| `GET /api/mappletv/extract?tmdbId=XXX&type=tv&season=1&episode=1` | Extract M3U8 + subtitles for TV |
 | `GET /api/proxy/m3u8?url=...&referer=...` | Proxy M3U8 playlists (CORS bypass) |
 | `GET /api/proxy/segment?url=...&referer=...` | Proxy video segments |
+| `GET /api/proxy/subtitle?url=...&referer=...` | Proxy subtitle files (VTT/SRT) |
 | `GET /health` | Health check |
 
 ### Backend Files (in `backend/` folder)
@@ -61,10 +62,23 @@ CMD ["xvfb-run", "--auto-servernum", "--server-args=-screen 0 1280x800x24", "nod
 ## 🎥 Frontend: HLS Player
 
 ### Configuration (`src/components/common/HLSPlayer.tsx`)
-- **ABR Mode**: Player uses adaptive bitrate selection (not forced 1080p)
-- **Large Buffers**: 60s ahead, 120s max for smooth seeking
-- **High Tolerance**: 120s fragment timeout, 15 retries, 2s buffer hole allowed
-- **Quality Selector**: User can manually switch to 1080p
+- **OPTIMIZED for Fast Playback**:
+  - Small initial buffer (15s) for quick start
+  - Max buffer 30s (prevents over-buffering)
+  - Fast timeouts (20s fragment, 15s manifest)
+  - ABR mode with 1Mbps initial estimate
+- **Seeking Optimization**:
+  - HLS.js `startLoad(position)` for faster seeks
+  - Proper seek event handling
+  - 15s back-buffer for quick rewinds
+- **Features**:
+  - Quality selector (Auto + manual levels)
+  - Subtitle support with track loading
+  - Skip forward/backward buttons (10s)
+  - Keyboard shortcuts (Space/K, arrows, M, F)
+- **Error Recovery**:
+  - 4 retries with 1s delay
+  - Media error auto-recovery
 
 ### Proxy Bypass Optimization (`src/services/mappletv.ts`)
 MappletTV returns URLs from CORS-enabled domains (heistotron.uk). The frontend **skips double-proxying** for these:
@@ -105,14 +119,32 @@ The frontend fetches movie/TV metadata from TMDB API. The TMDB API key and proxy
 
 ## ⚠️ Known Issues & Solutions
 
-### 1. Buffering/Loading Issues
-**Cause**: MappletTV's CDN (heistotron.uk) can be slow.
-**Solution**: ABR mode, increased timeouts, proxy bypass for CORS-enabled URLs.
+### 1. Buffering/Loading Issues (FIXED)
+**Cause**: Previous HLS.js config had excessive buffer sizes (60s+) causing slow start.
+**Solution**:
+- Reduced initial buffer to 15s for fast playback start
+- Max buffer 30s to prevent over-buffering
+- Faster timeouts (20s fragment vs previous 120s)
+- ABR mode with 1Mbps initial estimate
 
-### 2. Cloudflare Blocking
+### 2. Seeking Freezes (FIXED)
+**Cause**: HLS.js not properly handling seek events.
+**Solution**:
+- Added `startLoad(position)` call on seek
+- Proper seek event handlers (seeking/seeked)
+- 15s back-buffer for quick rewinds
+
+### 3. Missing Subtitles (FIXED)
+**Cause**: Backend had `parseSubtitles()` but never called it.
+**Solution**:
+- Backend now fetches M3U8 content and parses subtitles
+- New `/api/proxy/subtitle` endpoint for CORS bypass
+- Frontend loads subtitles into video text tracks
+
+### 4. Cloudflare Blocking
 **Solution**: `puppeteer-real-browser` with `turnstile: true` + `xvfb-run` for non-headless mode.
 
-### 3. HTTPS Protocol Detection on HF
+### 5. HTTPS Protocol Detection on HF
 **Cause**: HF reverse proxy reports `http` to backend.
 **Solution**: Force HTTPS when `host.includes('hf.space')` in proxy URL generation.
 
@@ -142,4 +174,19 @@ node scraper.js
 3. **Testing extraction**: `https://abhishek1996-fluxnest.hf.space/api/mappletv/extract?tmdbId=487670&type=movie`
 4. **Health check**: `https://abhishek1996-fluxnest.hf.space/health`
 
-**Current State**: System is functional. Extraction works. Playback works with some buffering delays due to upstream CDN.
+**Current State** (December 2025):
+- Extraction: Working
+- Playback: OPTIMIZED - Fast start, smooth seeking
+- Subtitles: Working - Extracted and displayed
+- Quality: ABR mode with manual selector
+- Keyboard shortcuts: Space, arrows, M, F
+
+**Key HLS.js Settings** (for reference):
+```javascript
+{
+  maxBufferLength: 15,        // Fast start
+  maxMaxBufferLength: 30,     // Prevents over-buffering
+  fragLoadingTimeOut: 20000,  // Quick recovery
+  abrEwmaDefaultEstimate: 1000000  // 1Mbps start estimate
+}
+```

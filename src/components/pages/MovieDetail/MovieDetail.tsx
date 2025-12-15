@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { tmdbService } from '../../../services/tmdb';
-import { mappleTVService, StreamResponse, Subtitle } from '../../../services/mappletv';
+import { mappleTVService, StreamResponse, Subtitle, processSubtitles } from '../../../services/mappletv';
 import type { MovieDetails } from '../../../types';
 import { TMDB_IMAGE_BASE_URL } from '../../../utils/constants';
 import { useWatchlist } from '../../../context/WatchlistContext';
@@ -80,7 +80,13 @@ const MovieDetail: React.FC = () => {
         // Set URL immediately - HLSPlayer will handle the rest
         setHlsUrl(proxiedUrl);
         setHlsReferer(streamResponse.referer || 'https://mapple.uk/');
-        setSubtitles(streamResponse.subtitles || []);
+
+        // Process subtitles - proxy URLs if needed for CORS
+        const referer = streamResponse.referer || 'https://mapple.uk/';
+        const processedSubtitles = processSubtitles(streamResponse.subtitles || [], referer);
+        setSubtitles(processedSubtitles);
+        console.log(`[MovieDetail] 📝 Loaded ${processedSubtitles.length} subtitles`);
+
         setStreamLoading(false);
 
         console.log(`[MovieDetail] ⏱️ Total time to set URL: ${(performance.now() - startTime).toFixed(0)}ms`);

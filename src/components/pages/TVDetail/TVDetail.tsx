@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { tmdbService } from '../../../services/tmdb';
-import { mappleTVService, StreamResponse, Subtitle } from '../../../services/mappletv';
+import { mappleTVService, StreamResponse, Subtitle, processSubtitles } from '../../../services/mappletv';
 import type { TVShowDetails, SeasonDetails } from '../../../types';
 import { TMDB_IMAGE_BASE_URL } from '../../../utils/constants';
 import { useWatchlist } from '../../../context/WatchlistContext';
@@ -112,7 +112,13 @@ const TVDetail: React.FC = () => {
 
         setHlsUrl(proxiedUrl);
         setHlsReferer(streamResponse.referer || 'https://mapple.uk/');
-        setSubtitles(streamResponse.subtitles || []);
+
+        // Process subtitles - proxy URLs if needed for CORS
+        const referer = streamResponse.referer || 'https://mapple.uk/';
+        const processedSubtitles = processSubtitles(streamResponse.subtitles || [], referer);
+        setSubtitles(processedSubtitles);
+        console.log(`[TVDetail] 📝 Loaded ${processedSubtitles.length} subtitles`);
+
         setStreamLoading(false);
       } else {
         console.error('[TVDetail] ❌ Stream extraction failed:', streamResponse.error);

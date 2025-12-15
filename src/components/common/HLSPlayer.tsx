@@ -3,7 +3,7 @@ import Hls from 'hls.js';
 import { Subtitle } from '../../services/mappletv';
 import {
     FaPlay, FaPause, FaExpand, FaCompress, FaVolumeUp, FaVolumeMute,
-    FaClosedCaptioning, FaCog, FaArrowLeft, FaSpinner
+    FaClosedCaptioning, FaCog, FaArrowLeft, FaSpinner, FaForward, FaBackward
 } from 'react-icons/fa';
 
 interface HLSPlayerProps {
@@ -26,6 +26,7 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
     const hlsRef = useRef<Hls | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const seekingRef = useRef(false);
 
     const [isPlaying, setIsPlaying] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
@@ -45,7 +46,7 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
     const [currentQuality, setCurrentQuality] = useState<number>(-1);
     const [currentSubtitle, setCurrentSubtitle] = useState<number>(-1);
 
-    // Initialize HLS.js
+    // Initialize HLS.js with OPTIMIZED configuration for fast playback
     useEffect(() => {
         const video = videoRef.current;
         if (!video || !src) {
@@ -53,46 +54,66 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
         }
 
         const initStartTime = performance.now();
-        console.log('[HLSPlayer] 🎬 Initializing HLS...');
+        console.log('[HLSPlayer] 🎬 Initializing HLS with optimized config...');
         setIsLoading(true);
         setError(null);
         setHlsLevels([]);
+        setCurrentSubtitle(-1);
 
         let hls: Hls | null = null;
 
         // Check if HLS.js is supported
         if (Hls.isSupported()) {
             hls = new Hls({
+                // === CORE OPTIMIZATION: Fast Start ===
                 enableWorker: true,
-                lowLatencyMode: false,           // Disable for smoother playback
-                backBufferLength: 30,            // Keep 30s of back buffer
-                maxBufferLength: 60,             // Buffer 60s ahead for smoother playback
-                maxMaxBufferLength: 120,         // Max 2 minute buffer
-                maxBufferSize: 60 * 1000 * 1000, // 60MB buffer
-                maxBufferHole: 2.0,              // Allow 2s hole (very tolerant)
-                startLevel: -1,                  // Let ABR choose (faster start)
-                autoStartLoad: true,
+                lowLatencyMode: false,           // VOD content, not live
+
+                // === BUFFER SETTINGS: Optimized for fast start + smooth playback ===
+                maxBufferLength: 15,             // Only buffer 15s ahead (was 60s!) - CRITICAL for fast start
+                maxMaxBufferLength: 30,          // Max 30s buffer (was 120s!) - prevents over-buffering
+                maxBufferSize: 30 * 1000 * 1000, // 30MB buffer (was 60MB)
+                backBufferLength: 15,            // Keep 15s behind for quick back-seeks
+                maxBufferHole: 0.5,              // Smaller tolerance for better quality (was 2.0)
+
+                // === ABR (Adaptive Bitrate) Settings ===
+                startLevel: -1,                  // Let ABR choose initial quality
+                abrEwmaDefaultEstimate: 1000000, // Start with 1Mbps estimate for faster initial load
+                abrBandWidthFactor: 0.95,        // Use 95% of measured bandwidth
+                abrBandWidthUpFactor: 0.7,       // Be conservative when upgrading quality
+                abrMaxWithRealBitrate: true,     // Use actual bitrate for decisions
+
+                // === LOADING SETTINGS: Faster timeouts for quicker recovery ===
+                fragLoadingTimeOut: 20000,       // 20s fragment timeout (was 120s!)
+                fragLoadingMaxRetry: 4,          // 4 retries (was 15)
+                fragLoadingRetryDelay: 1000,     // 1s between retries
+                levelLoadingTimeOut: 15000,      // 15s for level (was 60s)
+                levelLoadingMaxRetry: 4,
+                manifestLoadingTimeOut: 15000,   // 15s for manifest (was 60s)
+                manifestLoadingMaxRetry: 4,
+
+                // === SEEKING OPTIMIZATION ===
                 startPosition: 0,
-                capLevelToPlayerSize: false,     // Don't limit quality
-                debug: false,
-                // More tolerant fragment loading
-                fragLoadingTimeOut: 120000,      // 120s timeout for fragments
-                fragLoadingMaxRetry: 15,         // Many retries
-                fragLoadingRetryDelay: 500,      // Quick retries
-                levelLoadingTimeOut: 60000,      // 60s for level loading
-                levelLoadingMaxRetry: 10,        // Many retries
-                manifestLoadingTimeOut: 60000,   // 60s for manifest
-                manifestLoadingMaxRetry: 10,
+                autoStartLoad: true,
+                capLevelToPlayerSize: false,     // Allow all qualities
+                testBandwidth: true,             // Test bandwidth before first fragment
+                progressive: true,               // Enable progressive loading for faster start
+
+                // === ERROR RECOVERY ===
+                nudgeMaxRetry: 5,                // Quick nudge retries
+                nudgeOffset: 0.1,                // Small nudge offset
+
+                // === KEY/DRM Loading ===
                 keyLoadPolicy: {
                     default: {
-                        maxTimeToFirstByteMs: 60000,
-                        maxLoadTimeMs: 120000,
-                        timeoutRetry: { maxNumRetry: 10, retryDelayMs: 500, maxRetryDelayMs: 5000 },
-                        errorRetry: { maxNumRetry: 10, retryDelayMs: 500, maxRetryDelayMs: 5000 }
+                        maxTimeToFirstByteMs: 15000,
+                        maxLoadTimeMs: 30000,
+                        timeoutRetry: { maxNumRetry: 4, retryDelayMs: 1000, maxRetryDelayMs: 4000 },
+                        errorRetry: { maxNumRetry: 4, retryDelayMs: 1000, maxRetryDelayMs: 4000 }
                     }
                 },
-                // Buffer stall recovery
-                nudgeMaxRetry: 20,               // More retries for buffer nudge
+
+                debug: false,
                 xhrSetup: (xhr) => {
                     xhr.withCredentials = false;
                 }
@@ -117,27 +138,43 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
                 })).sort((a, b) => b.height - a.height);
                 setHlsLevels(levels);
 
-                // OPTIMIZATION: Let ABR choose quality for faster start
-                // Instead of forcing 1080p, we let it start at best guess and adapt
-                // User can switch to 1080p manually if they want
+                // ABR mode for optimal start
                 if (data.levels.length > 0 && hls) {
-                    // Enable ABR (automatic bitrate selection) for optimal experience
                     hls.nextLevel = -1; // ABR mode
-                    // Set to show what ABR selected
-                    const selectedLevel = hls.startLevel !== -1 ? hls.startLevel : 0;
-                    setCurrentQuality(selectedLevel);
+                    setCurrentQuality(-1); // Show "Auto" as selected
                     console.log(`[HLS] 🎯 ABR mode enabled, ${data.levels.length} quality levels available`);
+                }
+
+                // Check for HLS.js embedded subtitles
+                if (hls.subtitleTracks && hls.subtitleTracks.length > 0) {
+                    console.log(`[HLS] 📝 Found ${hls.subtitleTracks.length} embedded subtitle tracks`);
                 }
 
                 setIsLoading(false);
 
-                // Auto-play immediately
+                // Auto-play immediately - don't wait for full buffer
                 if (autoPlay && video) {
                     video.play().catch(e => {
                         console.log('[HLS] ⚠️ Autoplay blocked:', e.message);
                         video.muted = true;
                         video.play().catch(() => { });
                     });
+                }
+            });
+
+            // Event: Fragment loaded - track progress
+            hls.on(Hls.Events.FRAG_LOADED, () => {
+                // First fragment loaded means we can start playing
+                if (isLoading && video.readyState >= 2) {
+                    setIsLoading(false);
+                }
+            });
+
+            // Event: Level switched - update quality indicator
+            hls.on(Hls.Events.LEVEL_SWITCHED, (_, data) => {
+                const level = hls?.levels[data.level];
+                if (level) {
+                    console.log(`[HLS] 📊 Quality switched to ${level.height}p`);
                 }
             });
 
@@ -223,7 +260,7 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
         };
     }, [src, autoPlay]);
 
-    // Video event handlers
+    // Video event handlers - optimized for seeking
     useEffect(() => {
         const video = videoRef.current;
         if (!video) return;
@@ -231,9 +268,17 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
         const onPlay = () => setIsPlaying(true);
         const onPause = () => setIsPlaying(false);
         const onTimeUpdate = () => {
-            setCurrentTime(video.currentTime);
+            if (!seekingRef.current) {
+                setCurrentTime(video.currentTime);
+            }
             if (video.buffered.length > 0) {
-                setBuffered(video.buffered.end(video.buffered.length - 1));
+                // Find the buffer range that contains current time
+                for (let i = 0; i < video.buffered.length; i++) {
+                    if (video.currentTime >= video.buffered.start(i) && video.currentTime <= video.buffered.end(i)) {
+                        setBuffered(video.buffered.end(i));
+                        break;
+                    }
+                }
             }
         };
         const onDurationChange = () => setDuration(video.duration);
@@ -241,18 +286,49 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
             setVolume(video.volume);
             setIsMuted(video.muted);
         };
-        const onWaiting = () => setIsLoading(true);
-        const onPlaying = () => setIsLoading(false);
-        const onCanPlay = () => setIsLoading(false);
+
+        // Seeking events - show loading only briefly
+        const onSeeking = () => {
+            seekingRef.current = true;
+            setIsLoading(true);
+        };
+        const onSeeked = () => {
+            seekingRef.current = false;
+            // Check if we can play immediately
+            if (video.readyState >= 3) {
+                setIsLoading(false);
+            }
+        };
+        const onWaiting = () => {
+            // Only show loading if actually waiting (not just seeking)
+            if (!video.seeking) {
+                setIsLoading(true);
+            }
+        };
+        const onPlaying = () => {
+            seekingRef.current = false;
+            setIsLoading(false);
+        };
+        const onCanPlay = () => {
+            if (!seekingRef.current) {
+                setIsLoading(false);
+            }
+        };
+        const onCanPlayThrough = () => {
+            setIsLoading(false);
+        };
 
         video.addEventListener('play', onPlay);
         video.addEventListener('pause', onPause);
         video.addEventListener('timeupdate', onTimeUpdate);
         video.addEventListener('durationchange', onDurationChange);
         video.addEventListener('volumechange', onVolumeChange);
+        video.addEventListener('seeking', onSeeking);
+        video.addEventListener('seeked', onSeeked);
         video.addEventListener('waiting', onWaiting);
         video.addEventListener('playing', onPlaying);
         video.addEventListener('canplay', onCanPlay);
+        video.addEventListener('canplaythrough', onCanPlayThrough);
 
         return () => {
             video.removeEventListener('play', onPlay);
@@ -260,11 +336,51 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
             video.removeEventListener('timeupdate', onTimeUpdate);
             video.removeEventListener('durationchange', onDurationChange);
             video.removeEventListener('volumechange', onVolumeChange);
+            video.removeEventListener('seeking', onSeeking);
+            video.removeEventListener('seeked', onSeeked);
             video.removeEventListener('waiting', onWaiting);
             video.removeEventListener('playing', onPlaying);
             video.removeEventListener('canplay', onCanPlay);
+            video.removeEventListener('canplaythrough', onCanPlayThrough);
         };
     }, []);
+
+    // Load subtitles into video element
+    useEffect(() => {
+        const video = videoRef.current;
+        if (!video || subtitles.length === 0) return;
+
+        console.log(`[HLSPlayer] 📝 Loading ${subtitles.length} subtitle tracks`);
+
+        // Remove existing tracks
+        while (video.textTracks.length > 0) {
+            const track = video.querySelector('track');
+            if (track) track.remove();
+        }
+
+        // Add subtitle tracks
+        subtitles.forEach((sub, index) => {
+            const track = document.createElement('track');
+            track.kind = 'subtitles';
+            track.label = sub.label;
+            track.srclang = sub.language || 'en';
+            track.src = sub.file;
+            track.default = false;
+            video.appendChild(track);
+            console.log(`[HLSPlayer] Added subtitle: ${sub.label} (${sub.file.substring(0, 50)}...)`);
+        });
+
+        // Initially hide all tracks
+        for (let i = 0; i < video.textTracks.length; i++) {
+            video.textTracks[i].mode = 'hidden';
+        }
+
+        return () => {
+            // Cleanup tracks on unmount
+            const tracks = video.querySelectorAll('track');
+            tracks.forEach(track => track.remove());
+        };
+    }, [subtitles]);
 
     // Fullscreen handler
     useEffect(() => {
@@ -274,6 +390,51 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
         document.addEventListener('fullscreenchange', onFullscreenChange);
         return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
     }, []);
+
+    // Keyboard shortcuts
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Only handle if not typing in an input
+            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+            switch (e.key.toLowerCase()) {
+                case ' ':
+                case 'k':
+                    e.preventDefault();
+                    togglePlay();
+                    break;
+                case 'arrowleft':
+                    e.preventDefault();
+                    skipBackward();
+                    break;
+                case 'arrowright':
+                    e.preventDefault();
+                    skipForward();
+                    break;
+                case 'arrowup':
+                    e.preventDefault();
+                    if (videoRef.current) {
+                        videoRef.current.volume = Math.min(1, videoRef.current.volume + 0.1);
+                    }
+                    break;
+                case 'arrowdown':
+                    e.preventDefault();
+                    if (videoRef.current) {
+                        videoRef.current.volume = Math.max(0, videoRef.current.volume - 0.1);
+                    }
+                    break;
+                case 'm':
+                    toggleMute();
+                    break;
+                case 'f':
+                    toggleFullscreen();
+                    break;
+            }
+        };
+
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [duration]);
 
     // Auto-hide controls
     const showControlsTemporarily = useCallback(() => {
@@ -296,8 +457,32 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
         const video = videoRef.current;
         if (!video) return;
         const time = parseFloat(e.target.value);
+
+        // Optimized seeking: pause buffering, seek, then resume
+        if (hlsRef.current) {
+            // This helps HLS.js prioritize the new position
+            hlsRef.current.startLoad(time);
+        }
+
         video.currentTime = time;
         setCurrentTime(time);
+    };
+
+    // Skip forward/backward 10 seconds
+    const skipForward = () => {
+        const video = videoRef.current;
+        if (!video) return;
+        const newTime = Math.min(video.currentTime + 10, duration);
+        video.currentTime = newTime;
+        setCurrentTime(newTime);
+    };
+
+    const skipBackward = () => {
+        const video = videoRef.current;
+        if (!video) return;
+        const newTime = Math.max(video.currentTime - 10, 0);
+        video.currentTime = newTime;
+        setCurrentTime(newTime);
     };
 
     const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -422,17 +607,23 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
 
                 {/* Control Buttons */}
                 <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-3">
                         {onBack && (
-                            <button onClick={onBack} className="text-white hover:text-gray-300">
+                            <button onClick={onBack} className="text-white hover:text-gray-300" title="Back">
                                 <FaArrowLeft size={18} />
                             </button>
                         )}
-                        <button onClick={togglePlay} className="text-white hover:text-gray-300">
+                        <button onClick={togglePlay} className="text-white hover:text-gray-300" title="Play/Pause (K)">
                             {isPlaying ? <FaPause size={18} /> : <FaPlay size={18} />}
                         </button>
+                        <button onClick={skipBackward} className="text-white hover:text-gray-300" title="Rewind 10s (←)">
+                            <FaBackward size={16} />
+                        </button>
+                        <button onClick={skipForward} className="text-white hover:text-gray-300" title="Forward 10s (→)">
+                            <FaForward size={16} />
+                        </button>
                         <div className="flex items-center gap-2">
-                            <button onClick={toggleMute} className="text-white hover:text-gray-300">
+                            <button onClick={toggleMute} className="text-white hover:text-gray-300" title="Mute (M)">
                                 {isMuted || volume === 0 ? <FaVolumeMute size={18} /> : <FaVolumeUp size={18} />}
                             </button>
                             <input

@@ -134,11 +134,44 @@ export function getProxiedM3U8Url(originalUrl: string, referer?: string): string
     return `${SCRAPER_BASE_URL}/api/proxy/m3u8?${params}`;
 }
 
+/**
+ * Get proxied subtitle URL for CORS bypass
+ */
+export function getProxiedSubtitleUrl(originalUrl: string, referer?: string): string {
+    // Skip if already CORS-enabled
+    const corsEnabledDomains = ['heistotron.uk', 'source.heistotron.uk', 'proxy.heistotron.uk'];
+    const urlLower = originalUrl.toLowerCase();
+
+    if (corsEnabledDomains.some(domain => urlLower.includes(domain))) {
+        return originalUrl;
+    }
+
+    const params = new URLSearchParams({ url: originalUrl });
+    if (referer) {
+        params.append('referer', referer);
+    }
+    return `${SCRAPER_BASE_URL}/api/proxy/subtitle?${params}`;
+}
+
+/**
+ * Process subtitles from API response and proxy URLs if needed
+ */
+export function processSubtitles(subtitles: Subtitle[], referer?: string): Subtitle[] {
+    if (!subtitles || subtitles.length === 0) return [];
+
+    return subtitles.map(sub => ({
+        ...sub,
+        file: getProxiedSubtitleUrl(sub.file, referer)
+    }));
+}
+
 export const mappleTVService = {
     getStream: getMappleTVStream,
     getMappleTVStream,
     checkHealth: checkScraperHealth,
-    getProxiedUrl: getProxiedM3U8Url
+    getProxiedUrl: getProxiedM3U8Url,
+    getProxiedSubtitleUrl,
+    processSubtitles
 };
 
 export default mappleTVService;
