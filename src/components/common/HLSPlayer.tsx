@@ -1,10 +1,12 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import Hls from 'hls.js';
 import { Subtitle } from '../../services/mappletv';
 import {
     FaPlay, FaPause, FaExpand, FaCompress, FaVolumeUp, FaVolumeMute,
-    FaClosedCaptioning, FaCog, FaArrowLeft, FaSpinner, FaForward, FaBackward
+    FaVolumeDown, FaClosedCaptioning, FaCog, FaArrowLeft, FaForward,
+    FaBackward, FaTachometerAlt, FaSpinner
 } from 'react-icons/fa';
+import { MdPictureInPictureAlt, MdFullscreen, MdFullscreenExit } from 'react-icons/md';
 
 interface HLSPlayerProps {
     src: string;
@@ -15,6 +17,12 @@ interface HLSPlayerProps {
     title?: string;
 }
 
+interface QualityLevel {
+    label: string;
+    index: number;
+    height: number;
+}
+
 const HLSPlayer: React.FC<HLSPlayerProps> = ({
     src,
     subtitles = [],
@@ -22,14 +30,20 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
     autoPlay = true,
     title
 }) => {
+    // Refs
     const videoRef = useRef<HTMLVideoElement>(null);
     const hlsRef = useRef<Hls | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
+    const progressRef = useRef<HTMLDivElement>(null);
     const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const doubleTapTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const seekingRef = useRef(false);
+    const lastTapRef = useRef<{ time: number; x: number }>({ time: 0, x: 0 });
 
+    // State
     const [isPlaying, setIsPlaying] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
+    const [isBuffering, setIsBuffering] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
     const [volume, setVolume] = useState(1);
@@ -38,23 +52,37 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
     const [showControls, setShowControls] = useState(true);
     const [buffered, setBuffered] = useState(0);
     const [error, setError] = useState<string | null>(null);
-    const [hlsLevels, setHlsLevels] = useState<{ label: string; index: number }[]>([]);
+    const [hlsLevels, setHlsLevels] = useState<QualityLevel[]>([]);
 
-    // Quality and subtitle menus
-    const [showQualityMenu, setShowQualityMenu] = useState(false);
-    const [showSubtitleMenu, setShowSubtitleMenu] = useState(false);
+    // Menu states
+    const [showSettings, setShowSettings] = useState(false);
+    const [settingsTab, setSettingsTab] = useState<'main' | 'quality' | 'speed' | 'subtitles'>('main');
     const [currentQuality, setCurrentQuality] = useState<number>(-1);
     const [currentSubtitle, setCurrentSubtitle] = useState<number>(-1);
+    const [playbackSpeed, setPlaybackSpeed] = useState(1);
 
-    // Initialize HLS.js with OPTIMIZED configuration for fast playback
+    // Mobile gesture states
+    const [seekIndicator, setSeekIndicator] = useState<{ show: boolean; direction: 'forward' | 'backward'; seconds: number }>({ show: false, direction: 'forward', seconds: 0 });
+    const [volumeIndicator, setVolumeIndicator] = useState<{ show: boolean; value: number }>({ show: false, value: 0 });
+    const [isMobile, setIsMobile] = useState(false);
+
+    // Detect mobile
+    useEffect(() => {
+        const checkMobile = () => {
+            setIsMobile(window.innerWidth <= 768 || 'ontouchstart' in window);
+        };
+        checkMobile();
+        window.addEventListener('resize', checkMobile);
+        return () => window.removeEventListener('resize', checkMobile);
+    }, []);
+
+    // Initialize HLS.js with optimized configuration
     useEffect(() => {
         const video = videoRef.current;
-        if (!video || !src) {
-            return;
-        }
+        if (!video || !src) return;
 
         const initStartTime = performance.now();
-        console.log('[HLSPlayer] 🎬 Initializing HLS with optimized config...');
+        console.log('[HLSPlayer] Initializing HLS with optimized config...');
         setIsLoading(true);
         setError(null);
         setHlsLevels([]);
@@ -62,75 +90,47 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
 
         let hls: Hls | null = null;
 
-        // Check if HLS.js is supported
         if (Hls.isSupported()) {
             hls = new Hls({
-                // === CORE OPTIMIZATION: Fast Start ===
                 enableWorker: true,
-                lowLatencyMode: false,           // VOD content, not live
-
-                // === BUFFER SETTINGS: Optimized for fast start + smooth playback ===
-                maxBufferLength: 15,             // Only buffer 15s ahead (was 60s!) - CRITICAL for fast start
-                maxMaxBufferLength: 30,          // Max 30s buffer (was 120s!) - prevents over-buffering
-                maxBufferSize: 30 * 1000 * 1000, // 30MB buffer (was 60MB)
-                backBufferLength: 15,            // Keep 15s behind for quick back-seeks
-                maxBufferHole: 0.5,              // Smaller tolerance for better quality (was 2.0)
-
-                // === ABR (Adaptive Bitrate) Settings ===
-                startLevel: -1,                  // Let ABR choose initial quality
-                abrEwmaDefaultEstimate: 1000000, // Start with 1Mbps estimate for faster initial load
-                abrBandWidthFactor: 0.95,        // Use 95% of measured bandwidth
-                abrBandWidthUpFactor: 0.7,       // Be conservative when upgrading quality
-                abrMaxWithRealBitrate: true,     // Use actual bitrate for decisions
-
-                // === LOADING SETTINGS: Faster timeouts for quicker recovery ===
-                fragLoadingTimeOut: 20000,       // 20s fragment timeout (was 120s!)
-                fragLoadingMaxRetry: 4,          // 4 retries (was 15)
-                fragLoadingRetryDelay: 1000,     // 1s between retries
-                levelLoadingTimeOut: 15000,      // 15s for level (was 60s)
+                lowLatencyMode: false,
+                maxBufferLength: 15,
+                maxMaxBufferLength: 30,
+                maxBufferSize: 30 * 1000 * 1000,
+                backBufferLength: 15,
+                maxBufferHole: 0.5,
+                startLevel: -1,
+                abrEwmaDefaultEstimate: 1000000,
+                abrBandWidthFactor: 0.95,
+                abrBandWidthUpFactor: 0.7,
+                abrMaxWithRealBitrate: true,
+                fragLoadingTimeOut: 20000,
+                fragLoadingMaxRetry: 4,
+                fragLoadingRetryDelay: 1000,
+                levelLoadingTimeOut: 15000,
                 levelLoadingMaxRetry: 4,
-                manifestLoadingTimeOut: 15000,   // 15s for manifest (was 60s)
+                manifestLoadingTimeOut: 15000,
                 manifestLoadingMaxRetry: 4,
-
-                // === SEEKING OPTIMIZATION ===
                 startPosition: 0,
                 autoStartLoad: true,
-                capLevelToPlayerSize: false,     // Allow all qualities
-                testBandwidth: true,             // Test bandwidth before first fragment
-                progressive: true,               // Enable progressive loading for faster start
-
-                // === ERROR RECOVERY ===
-                nudgeMaxRetry: 5,                // Quick nudge retries
-                nudgeOffset: 0.1,                // Small nudge offset
-
-                // === KEY/DRM Loading ===
-                keyLoadPolicy: {
-                    default: {
-                        maxTimeToFirstByteMs: 15000,
-                        maxLoadTimeMs: 30000,
-                        timeoutRetry: { maxNumRetry: 4, retryDelayMs: 1000, maxRetryDelayMs: 4000 },
-                        errorRetry: { maxNumRetry: 4, retryDelayMs: 1000, maxRetryDelayMs: 4000 }
-                    }
-                },
-
+                capLevelToPlayerSize: false,
+                testBandwidth: true,
+                progressive: true,
+                nudgeMaxRetry: 5,
+                nudgeOffset: 0.1,
                 debug: false,
-                xhrSetup: (xhr) => {
-                    xhr.withCredentials = false;
-                }
+                xhrSetup: (xhr) => { xhr.withCredentials = false; }
             });
 
             hlsRef.current = hls;
 
-            // Event: Media attached to video element
             hls.on(Hls.Events.MEDIA_ATTACHED, () => {
-                console.log(`[HLS] 🔗 Media attached (${(performance.now() - initStartTime).toFixed(0)}ms)`);
+                console.log(`[HLS] Media attached (${(performance.now() - initStartTime).toFixed(0)}ms)`);
             });
 
-            // Event: Manifest parsed - ready to play
             hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
-                console.log(`[HLS] ✅ Manifest parsed in ${(performance.now() - initStartTime).toFixed(0)}ms, levels: ${data.levels.length}`);
+                console.log(`[HLS] Manifest parsed in ${(performance.now() - initStartTime).toFixed(0)}ms, levels: ${data.levels.length}`);
 
-                // Store quality levels (sorted by height, highest first)
                 const levels = data.levels.map((level, index) => ({
                     label: `${level.height}p`,
                     index,
@@ -138,86 +138,66 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
                 })).sort((a, b) => b.height - a.height);
                 setHlsLevels(levels);
 
-                // ABR mode for optimal start
                 if (data.levels.length > 0 && hls) {
-                    hls.nextLevel = -1; // ABR mode
-                    setCurrentQuality(-1); // Show "Auto" as selected
-                    console.log(`[HLS] 🎯 ABR mode enabled, ${data.levels.length} quality levels available`);
-                }
-
-                // Check for HLS.js embedded subtitles
-                if (hls.subtitleTracks && hls.subtitleTracks.length > 0) {
-                    console.log(`[HLS] 📝 Found ${hls.subtitleTracks.length} embedded subtitle tracks`);
+                    hls.nextLevel = -1;
+                    setCurrentQuality(-1);
                 }
 
                 setIsLoading(false);
 
-                // Auto-play immediately - don't wait for full buffer
                 if (autoPlay && video) {
                     video.play().catch(e => {
-                        console.log('[HLS] ⚠️ Autoplay blocked:', e.message);
+                        console.log('[HLS] Autoplay blocked:', e.message);
                         video.muted = true;
                         video.play().catch(() => { });
                     });
                 }
             });
 
-            // Event: Fragment loaded - track progress
             hls.on(Hls.Events.FRAG_LOADED, () => {
-                // First fragment loaded means we can start playing
                 if (isLoading && video.readyState >= 2) {
                     setIsLoading(false);
                 }
             });
 
-            // Event: Level switched - update quality indicator
             hls.on(Hls.Events.LEVEL_SWITCHED, (_, data) => {
                 const level = hls?.levels[data.level];
                 if (level) {
-                    console.log(`[HLS] 📊 Quality switched to ${level.height}p`);
+                    console.log(`[HLS] Quality: ${level.height}p`);
                 }
             });
 
-            // Event: Error handling with retry limit
             let networkRetries = 0;
-            const MAX_RETRIES = 6;
+            const MAX_RETRIES = 4;
 
             hls.on(Hls.Events.ERROR, (_, data) => {
-                // Non-fatal errors - just log, don't show to user
                 if (!data.fatal) {
-                    // Buffer stall is common during quality changes, ignore it
-                    if (data.details !== 'bufferStalledError' &&
-                        data.details !== 'bufferSeekOverHole' &&
-                        data.details !== 'bufferAppendError' &&
-                        data.details !== 'bufferNudgeOnStall') {
-                        console.log('[HLS] ⚠️ Non-fatal:', data.details);
+                    if (!['bufferStalledError', 'bufferSeekOverHole', 'bufferAppendError', 'bufferNudgeOnStall'].includes(data.details)) {
+                        console.log('[HLS] Non-fatal:', data.details);
                     }
                     return;
                 }
 
-                console.error('[HLS] ❌ Fatal error:', data.type, data.details);
+                console.error('[HLS] Fatal error:', data.type, data.details);
 
                 switch (data.type) {
                     case Hls.ErrorTypes.NETWORK_ERROR:
                         if (networkRetries < MAX_RETRIES) {
                             networkRetries++;
-                            console.log(`[HLS] Network error, retry ${networkRetries}/${MAX_RETRIES}...`);
-                            setTimeout(() => hls?.startLoad(), 2000); // Increased delay
+                            console.log(`[HLS] Network retry ${networkRetries}/${MAX_RETRIES}...`);
+                            setTimeout(() => hls?.startLoad(), 1000);
                         } else {
-                            setError('Network error - please check connection and retry');
+                            setError('Network error - please retry');
                             setIsLoading(false);
                         }
                         break;
                     case Hls.ErrorTypes.MEDIA_ERROR:
-                        console.log('[HLS] Media error, recovering...');
                         hls?.recoverMediaError();
                         break;
                     default:
-                        // For other errors, try recovery first
-                        console.log('[HLS] Unknown error, attempting recovery...');
                         hls?.recoverMediaError();
                         setTimeout(() => {
-                            if (!videoRef.current?.paused) return; // Already playing
+                            if (!videoRef.current?.paused) return;
                             setError(`Playback error: ${data.details}`);
                             setIsLoading(false);
                         }, 3000);
@@ -225,141 +205,103 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
                 }
             });
 
-            // CRITICAL: Attach media FIRST, then load source
             hls.attachMedia(video);
             hls.loadSource(src);
 
         } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            // Native HLS support (Safari)
-            console.log('[HLSPlayer] Using native HLS (Safari)');
             video.src = src;
-
             video.addEventListener('loadedmetadata', () => {
                 setIsLoading(false);
-                if (autoPlay) {
-                    video.play().catch(e => console.log('[Native HLS] Autoplay blocked:', e));
-                }
+                if (autoPlay) video.play().catch(() => { });
             });
-
             video.addEventListener('error', () => {
                 setError('Failed to load video');
                 setIsLoading(false);
             });
         } else {
-            setError('HLS playback not supported in this browser');
+            setError('HLS playback not supported');
             setIsLoading(false);
         }
 
-        // Cleanup
         return () => {
-            console.log('[HLSPlayer] 🧹 Cleanup');
-            if (hls) {
-                hls.destroy();
-            }
+            if (hls) hls.destroy();
             hlsRef.current = null;
         };
     }, [src, autoPlay]);
 
-    // Video event handlers - optimized for seeking
+    // Video event handlers
     useEffect(() => {
         const video = videoRef.current;
         if (!video) return;
 
-        const onPlay = () => setIsPlaying(true);
-        const onPause = () => setIsPlaying(false);
-        const onTimeUpdate = () => {
-            if (!seekingRef.current) {
-                setCurrentTime(video.currentTime);
-            }
-            if (video.buffered.length > 0) {
-                // Find the buffer range that contains current time
-                for (let i = 0; i < video.buffered.length; i++) {
-                    if (video.currentTime >= video.buffered.start(i) && video.currentTime <= video.buffered.end(i)) {
-                        setBuffered(video.buffered.end(i));
-                        break;
+        const handlers = {
+            play: () => setIsPlaying(true),
+            pause: () => setIsPlaying(false),
+            timeupdate: () => {
+                if (!seekingRef.current) {
+                    setCurrentTime(video.currentTime);
+                }
+                if (video.buffered.length > 0) {
+                    for (let i = 0; i < video.buffered.length; i++) {
+                        if (video.currentTime >= video.buffered.start(i) && video.currentTime <= video.buffered.end(i)) {
+                            setBuffered(video.buffered.end(i));
+                            break;
+                        }
                     }
                 }
-            }
-        };
-        const onDurationChange = () => setDuration(video.duration);
-        const onVolumeChange = () => {
-            setVolume(video.volume);
-            setIsMuted(video.muted);
+            },
+            durationchange: () => setDuration(video.duration),
+            volumechange: () => {
+                setVolume(video.volume);
+                setIsMuted(video.muted);
+            },
+            seeking: () => {
+                seekingRef.current = true;
+                setIsBuffering(true);
+            },
+            seeked: () => {
+                seekingRef.current = false;
+                if (video.readyState >= 3) setIsBuffering(false);
+            },
+            waiting: () => {
+                if (!video.seeking) setIsBuffering(true);
+            },
+            playing: () => {
+                seekingRef.current = false;
+                setIsBuffering(false);
+                setIsLoading(false);
+            },
+            canplay: () => {
+                if (!seekingRef.current) setIsBuffering(false);
+            },
+            canplaythrough: () => setIsBuffering(false),
+            ratechange: () => setPlaybackSpeed(video.playbackRate)
         };
 
-        // Seeking events - show loading only briefly
-        const onSeeking = () => {
-            seekingRef.current = true;
-            setIsLoading(true);
-        };
-        const onSeeked = () => {
-            seekingRef.current = false;
-            // Check if we can play immediately
-            if (video.readyState >= 3) {
-                setIsLoading(false);
-            }
-        };
-        const onWaiting = () => {
-            // Only show loading if actually waiting (not just seeking)
-            if (!video.seeking) {
-                setIsLoading(true);
-            }
-        };
-        const onPlaying = () => {
-            seekingRef.current = false;
-            setIsLoading(false);
-        };
-        const onCanPlay = () => {
-            if (!seekingRef.current) {
-                setIsLoading(false);
-            }
-        };
-        const onCanPlayThrough = () => {
-            setIsLoading(false);
-        };
-
-        video.addEventListener('play', onPlay);
-        video.addEventListener('pause', onPause);
-        video.addEventListener('timeupdate', onTimeUpdate);
-        video.addEventListener('durationchange', onDurationChange);
-        video.addEventListener('volumechange', onVolumeChange);
-        video.addEventListener('seeking', onSeeking);
-        video.addEventListener('seeked', onSeeked);
-        video.addEventListener('waiting', onWaiting);
-        video.addEventListener('playing', onPlaying);
-        video.addEventListener('canplay', onCanPlay);
-        video.addEventListener('canplaythrough', onCanPlayThrough);
+        Object.entries(handlers).forEach(([event, handler]) => {
+            video.addEventListener(event, handler as EventListener);
+        });
 
         return () => {
-            video.removeEventListener('play', onPlay);
-            video.removeEventListener('pause', onPause);
-            video.removeEventListener('timeupdate', onTimeUpdate);
-            video.removeEventListener('durationchange', onDurationChange);
-            video.removeEventListener('volumechange', onVolumeChange);
-            video.removeEventListener('seeking', onSeeking);
-            video.removeEventListener('seeked', onSeeked);
-            video.removeEventListener('waiting', onWaiting);
-            video.removeEventListener('playing', onPlaying);
-            video.removeEventListener('canplay', onCanPlay);
-            video.removeEventListener('canplaythrough', onCanPlayThrough);
+            Object.entries(handlers).forEach(([event, handler]) => {
+                video.removeEventListener(event, handler as EventListener);
+            });
         };
     }, []);
 
-    // Load subtitles into video element
+    // Load subtitles
     useEffect(() => {
         const video = videoRef.current;
         if (!video || subtitles.length === 0) return;
 
-        console.log(`[HLSPlayer] 📝 Loading ${subtitles.length} subtitle tracks`);
+        console.log(`[HLSPlayer] Loading ${subtitles.length} subtitle tracks`);
 
         // Remove existing tracks
-        while (video.textTracks.length > 0) {
-            const track = video.querySelector('track');
-            if (track) track.remove();
-        }
+        const existingTracks = video.querySelectorAll('track');
+        existingTracks.forEach(track => track.remove());
 
         // Add subtitle tracks
-        subtitles.forEach((sub, index) => {
+        subtitles.forEach((sub) => {
             const track = document.createElement('track');
             track.kind = 'subtitles';
             track.label = sub.label;
@@ -367,16 +309,14 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
             track.src = sub.file;
             track.default = false;
             video.appendChild(track);
-            console.log(`[HLSPlayer] Added subtitle: ${sub.label} (${sub.file.substring(0, 50)}...)`);
         });
 
-        // Initially hide all tracks
+        // Hide all initially
         for (let i = 0; i < video.textTracks.length; i++) {
             video.textTracks[i].mode = 'hidden';
         }
 
         return () => {
-            // Cleanup tracks on unmount
             const tracks = video.querySelectorAll('track');
             tracks.forEach(track => track.remove());
         };
@@ -384,18 +324,18 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
 
     // Fullscreen handler
     useEffect(() => {
-        const onFullscreenChange = () => {
-            setIsFullscreen(!!document.fullscreenElement);
-        };
-        document.addEventListener('fullscreenchange', onFullscreenChange);
-        return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+        const onChange = () => setIsFullscreen(!!document.fullscreenElement);
+        document.addEventListener('fullscreenchange', onChange);
+        return () => document.removeEventListener('fullscreenchange', onChange);
     }, []);
 
     // Keyboard shortcuts
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            // Only handle if not typing in an input
             if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+            const video = videoRef.current;
+            if (!video) return;
 
             switch (e.key.toLowerCase()) {
                 case ' ':
@@ -404,30 +344,38 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
                     togglePlay();
                     break;
                 case 'arrowleft':
+                case 'j':
                     e.preventDefault();
-                    skipBackward();
+                    skip(-10);
                     break;
                 case 'arrowright':
+                case 'l':
                     e.preventDefault();
-                    skipForward();
+                    skip(10);
                     break;
                 case 'arrowup':
                     e.preventDefault();
-                    if (videoRef.current) {
-                        videoRef.current.volume = Math.min(1, videoRef.current.volume + 0.1);
-                    }
+                    video.volume = Math.min(1, video.volume + 0.1);
+                    showVolumeIndicator(video.volume);
                     break;
                 case 'arrowdown':
                     e.preventDefault();
-                    if (videoRef.current) {
-                        videoRef.current.volume = Math.max(0, videoRef.current.volume - 0.1);
-                    }
+                    video.volume = Math.max(0, video.volume - 0.1);
+                    showVolumeIndicator(video.volume);
                     break;
                 case 'm':
                     toggleMute();
                     break;
                 case 'f':
                     toggleFullscreen();
+                    break;
+                case 'c':
+                    toggleSubtitles();
+                    break;
+                case '0': case '1': case '2': case '3': case '4':
+                case '5': case '6': case '7': case '8': case '9':
+                    e.preventDefault();
+                    video.currentTime = duration * (parseInt(e.key) / 10);
                     break;
             }
         };
@@ -439,67 +387,58 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
     // Auto-hide controls
     const showControlsTemporarily = useCallback(() => {
         setShowControls(true);
-        if (controlsTimeoutRef.current) {
-            clearTimeout(controlsTimeoutRef.current);
-        }
+        setShowSettings(false);
+        if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
         if (isPlaying) {
             controlsTimeoutRef.current = setTimeout(() => setShowControls(false), 3000);
         }
     }, [isPlaying]);
 
-    const togglePlay = () => {
+    // Player actions
+    const togglePlay = useCallback(() => {
         const video = videoRef.current;
         if (!video) return;
         video.paused ? video.play() : video.pause();
-    };
+    }, []);
 
-    const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const skip = useCallback((seconds: number) => {
         const video = videoRef.current;
         if (!video) return;
-        const time = parseFloat(e.target.value);
-
-        // Optimized seeking: pause buffering, seek, then resume
-        if (hlsRef.current) {
-            // This helps HLS.js prioritize the new position
-            hlsRef.current.startLoad(time);
-        }
-
-        video.currentTime = time;
-        setCurrentTime(time);
-    };
-
-    // Skip forward/backward 10 seconds
-    const skipForward = () => {
-        const video = videoRef.current;
-        if (!video) return;
-        const newTime = Math.min(video.currentTime + 10, duration);
+        const newTime = Math.max(0, Math.min(duration, video.currentTime + seconds));
+        if (hlsRef.current) hlsRef.current.startLoad(newTime);
         video.currentTime = newTime;
         setCurrentTime(newTime);
-    };
 
-    const skipBackward = () => {
+        // Show indicator
+        setSeekIndicator({
+            show: true,
+            direction: seconds > 0 ? 'forward' : 'backward',
+            seconds: Math.abs(seconds)
+        });
+        setTimeout(() => setSeekIndicator(prev => ({ ...prev, show: false })), 800);
+    }, [duration]);
+
+    const handleSeek = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
         const video = videoRef.current;
-        if (!video) return;
-        const newTime = Math.max(video.currentTime - 10, 0);
+        const progress = progressRef.current;
+        if (!video || !progress) return;
+
+        const rect = progress.getBoundingClientRect();
+        const pos = (e.clientX - rect.left) / rect.width;
+        const newTime = pos * duration;
+
+        if (hlsRef.current) hlsRef.current.startLoad(newTime);
         video.currentTime = newTime;
         setCurrentTime(newTime);
-    };
+    }, [duration]);
 
-    const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const video = videoRef.current;
-        if (!video) return;
-        const vol = parseFloat(e.target.value);
-        video.volume = vol;
-        video.muted = vol === 0;
-    };
-
-    const toggleMute = () => {
+    const toggleMute = useCallback(() => {
         const video = videoRef.current;
         if (!video) return;
         video.muted = !video.muted;
-    };
+    }, []);
 
-    const toggleFullscreen = () => {
+    const toggleFullscreen = useCallback(() => {
         const container = containerRef.current;
         if (!container) return;
         if (!document.fullscreenElement) {
@@ -507,31 +446,106 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
         } else {
             document.exitFullscreen();
         }
-    };
+    }, []);
 
-    const selectQuality = (level: number) => {
+    const toggleSubtitles = useCallback(() => {
+        const video = videoRef.current;
+        if (!video || subtitles.length === 0) return;
+
+        if (currentSubtitle >= 0) {
+            // Turn off
+            for (let i = 0; i < video.textTracks.length; i++) {
+                video.textTracks[i].mode = 'hidden';
+            }
+            setCurrentSubtitle(-1);
+        } else {
+            // Turn on first subtitle
+            if (video.textTracks.length > 0) {
+                video.textTracks[0].mode = 'showing';
+                setCurrentSubtitle(0);
+            }
+        }
+    }, [currentSubtitle, subtitles]);
+
+    const selectQuality = useCallback((level: number) => {
         if (hlsRef.current) {
-            // Use nextLevel for smooth switching without interrupting current playback
             hlsRef.current.nextLevel = level;
-            // Also set currentLevel to force immediate switch if needed
             hlsRef.current.currentLevel = level;
             setCurrentQuality(level);
-            console.log(`[HLS] 🔄 Quality changed to level ${level}`);
         }
-        setShowQualityMenu(false);
-    };
+        setShowSettings(false);
+    }, []);
 
-    const selectSubtitle = (index: number) => {
+    const selectSubtitle = useCallback((index: number) => {
         const video = videoRef.current;
         if (!video) return;
         for (let i = 0; i < video.textTracks.length; i++) {
             video.textTracks[i].mode = i === index ? 'showing' : 'hidden';
         }
         setCurrentSubtitle(index);
-        setShowSubtitleMenu(false);
-    };
+        setShowSettings(false);
+    }, []);
 
-    const formatTime = (seconds: number): string => {
+    const setSpeed = useCallback((speed: number) => {
+        const video = videoRef.current;
+        if (!video) return;
+        video.playbackRate = speed;
+        setPlaybackSpeed(speed);
+        setShowSettings(false);
+    }, []);
+
+    const showVolumeIndicator = useCallback((value: number) => {
+        setVolumeIndicator({ show: true, value });
+        setTimeout(() => setVolumeIndicator(prev => ({ ...prev, show: false })), 800);
+    }, []);
+
+    const togglePiP = useCallback(async () => {
+        const video = videoRef.current;
+        if (!video) return;
+        try {
+            if (document.pictureInPictureElement) {
+                await document.exitPictureInPicture();
+            } else {
+                await video.requestPictureInPicture();
+            }
+        } catch (e) {
+            console.log('PiP not supported');
+        }
+    }, []);
+
+    // Mobile touch handlers
+    const handleTouchStart = useCallback((e: React.TouchEvent) => {
+        if (e.touches.length !== 1) return;
+        const touch = e.touches[0];
+        const now = Date.now();
+        const timeDiff = now - lastTapRef.current.time;
+        const xDiff = Math.abs(touch.clientX - lastTapRef.current.x);
+
+        // Double tap detection
+        if (timeDiff < 300 && xDiff < 50) {
+            const containerWidth = containerRef.current?.clientWidth || 0;
+            const tapX = touch.clientX;
+
+            if (tapX < containerWidth / 3) {
+                skip(-10);
+            } else if (tapX > containerWidth * 2 / 3) {
+                skip(10);
+            } else {
+                togglePlay();
+            }
+
+            lastTapRef.current = { time: 0, x: 0 };
+        } else {
+            lastTapRef.current = { time: now, x: touch.clientX };
+            if (doubleTapTimeoutRef.current) clearTimeout(doubleTapTimeoutRef.current);
+            doubleTapTimeoutRef.current = setTimeout(() => {
+                showControlsTemporarily();
+            }, 300);
+        }
+    }, [skip, togglePlay, showControlsTemporarily]);
+
+    // Format time
+    const formatTime = useCallback((seconds: number): string => {
         if (isNaN(seconds)) return '0:00';
         const h = Math.floor(seconds / 3600);
         const m = Math.floor((seconds % 3600) / 60);
@@ -540,17 +554,42 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
             return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
         }
         return `${m}:${s.toString().padStart(2, '0')}`;
-    };
+    }, []);
+
+    // Progress percentage
+    const progressPercent = useMemo(() => duration > 0 ? (currentTime / duration) * 100 : 0, [currentTime, duration]);
+    const bufferedPercent = useMemo(() => duration > 0 ? (buffered / duration) * 100 : 0, [buffered, duration]);
+
+    // Quality label
+    const currentQualityLabel = useMemo(() => {
+        if (currentQuality === -1) return 'Auto';
+        const level = hlsLevels.find(l => l.index === currentQuality);
+        return level?.label || 'Auto';
+    }, [currentQuality, hlsLevels]);
+
+    // Speed options
+    const speedOptions = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
     if (error) {
         return (
-            <div className="w-full h-full bg-black flex flex-col items-center justify-center text-white">
-                <p className="text-red-500 mb-4">{error}</p>
-                {onBack && (
-                    <button onClick={onBack} className="bg-red-600 px-4 py-2 rounded flex items-center gap-2">
-                        <FaArrowLeft /> Go Back
+            <div className="w-full h-full bg-black flex flex-col items-center justify-center text-white p-4">
+                <div className="text-red-500 text-lg mb-4 text-center">{error}</div>
+                <div className="flex gap-3">
+                    <button
+                        onClick={() => window.location.reload()}
+                        className="px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors"
+                    >
+                        Retry
                     </button>
-                )}
+                    {onBack && (
+                        <button
+                            onClick={onBack}
+                            className="px-6 py-2.5 bg-white/10 hover:bg-white/20 text-white font-medium rounded-lg transition-colors"
+                        >
+                            Go Back
+                        </button>
+                    )}
+                </div>
             </div>
         );
     }
@@ -558,158 +597,365 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
     return (
         <div
             ref={containerRef}
-            className="relative w-full h-full bg-black"
-            onMouseMove={showControlsTemporarily}
-            onMouseLeave={() => isPlaying && setShowControls(false)}
-            onClick={showControlsTemporarily}
+            className="relative w-full h-full bg-black select-none overflow-hidden group"
+            onMouseMove={!isMobile ? showControlsTemporarily : undefined}
+            onMouseLeave={() => !isMobile && isPlaying && setShowControls(false)}
+            onTouchStart={isMobile ? handleTouchStart : undefined}
         >
+            {/* Video Element */}
             <video
                 ref={videoRef}
-                className="w-full h-full"
+                className="w-full h-full object-contain"
                 playsInline
-                onClick={togglePlay}
+                onClick={!isMobile ? togglePlay : undefined}
+                style={{
+                    // Custom subtitle styling
+                    WebkitTextStroke: '1px black'
+                }}
             />
 
+            {/* Custom Subtitle Styling */}
+            <style>{`
+                video::cue {
+                    background: rgba(0, 0, 0, 0.75);
+                    color: #fff;
+                    font-family: 'Netflix Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+                    font-size: ${isMobile ? '3.5vw' : '1.8vw'};
+                    font-weight: 600;
+                    text-shadow: 2px 2px 4px rgba(0,0,0,0.9), 0 0 2px rgba(0,0,0,0.9);
+                    padding: 0.2em 0.5em;
+                    border-radius: 4px;
+                    line-height: 1.4;
+                }
+                video::-webkit-media-text-track-container {
+                    transform: translateY(${isFullscreen ? '-10%' : '-5%'});
+                }
+            `}</style>
+
             {/* Loading Spinner */}
-            {isLoading && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-                    <span className="text-white text-4xl animate-spin"><FaSpinner /></span>
+            {(isLoading || isBuffering) && (
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+                    <div className="relative">
+                        <div className="w-16 h-16 border-4 border-white/20 border-t-red-600 rounded-full animate-spin" />
+                    </div>
                 </div>
             )}
 
-            {/* Center Play Button */}
-            {!isPlaying && !isLoading && (
+            {/* Seek Indicator (Double-tap) */}
+            {seekIndicator.show && (
+                <div className={`absolute top-1/2 -translate-y-1/2 ${seekIndicator.direction === 'forward' ? 'right-1/4' : 'left-1/4'} pointer-events-none z-20`}>
+                    <div className="flex flex-col items-center animate-pulse">
+                        <div className="text-white text-4xl mb-1">
+                            {seekIndicator.direction === 'forward' ? <FaForward /> : <FaBackward />}
+                        </div>
+                        <span className="text-white text-sm font-medium">{seekIndicator.seconds}s</span>
+                    </div>
+                </div>
+            )}
+
+            {/* Volume Indicator */}
+            {volumeIndicator.show && (
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none z-20">
+                    <div className="bg-black/80 rounded-lg px-6 py-4 flex flex-col items-center">
+                        <FaVolumeUp className="text-white text-2xl mb-2" />
+                        <div className="w-24 h-1 bg-white/30 rounded-full overflow-hidden">
+                            <div
+                                className="h-full bg-white rounded-full transition-all"
+                                style={{ width: `${volumeIndicator.value * 100}%` }}
+                            />
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Center Play Button (when paused) */}
+            {!isPlaying && !isLoading && !isBuffering && (
                 <button
-                    className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-red-600 rounded-full p-6 hover:bg-red-700 transition-colors"
+                    className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 bg-red-600/90 hover:bg-red-600 rounded-full flex items-center justify-center transition-all transform hover:scale-110 z-10"
                     onClick={togglePlay}
                 >
-                    <span className="text-white text-3xl ml-1"><FaPlay /></span>
+                    <FaPlay className="text-white text-2xl ml-1" />
                 </button>
             )}
 
-            {/* Controls */}
-            <div className={`absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent p-4 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-                {title && <div className="text-white text-sm mb-2 truncate">{title}</div>}
+            {/* Top Gradient */}
+            <div className={`absolute top-0 inset-x-0 h-24 bg-gradient-to-b from-black/80 to-transparent transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`} />
 
-                {/* Progress Bar */}
-                <div className="relative h-1 bg-gray-600 rounded mb-3 group">
-                    <div className="absolute h-full bg-gray-400 rounded" style={{ width: `${(buffered / duration) * 100 || 0}%` }} />
-                    <div className="absolute h-full bg-red-600 rounded" style={{ width: `${(currentTime / duration) * 100 || 0}%` }} />
-                    <input
-                        type="range"
-                        min={0}
-                        max={duration || 0}
-                        value={currentTime}
-                        onChange={handleSeek}
-                        className="absolute w-full h-full opacity-0 cursor-pointer"
-                    />
-                </div>
+            {/* Title Bar */}
+            <div className={`absolute top-0 inset-x-0 p-4 flex items-center gap-3 transition-opacity duration-300 z-20 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+                {onBack && (
+                    <button
+                        onClick={onBack}
+                        className="p-2 rounded-full bg-black/50 hover:bg-black/70 text-white transition-colors"
+                    >
+                        <FaArrowLeft size={20} />
+                    </button>
+                )}
+                {title && (
+                    <h2 className="text-white font-medium text-lg truncate flex-1">{title}</h2>
+                )}
+            </div>
 
-                {/* Control Buttons */}
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        {onBack && (
-                            <button onClick={onBack} className="text-white hover:text-gray-300" title="Back">
-                                <FaArrowLeft size={18} />
-                            </button>
-                        )}
-                        <button onClick={togglePlay} className="text-white hover:text-gray-300" title="Play/Pause (K)">
-                            {isPlaying ? <FaPause size={18} /> : <FaPlay size={18} />}
-                        </button>
-                        <button onClick={skipBackward} className="text-white hover:text-gray-300" title="Rewind 10s (←)">
-                            <FaBackward size={16} />
-                        </button>
-                        <button onClick={skipForward} className="text-white hover:text-gray-300" title="Forward 10s (→)">
-                            <FaForward size={16} />
-                        </button>
-                        <div className="flex items-center gap-2">
-                            <button onClick={toggleMute} className="text-white hover:text-gray-300" title="Mute (M)">
-                                {isMuted || volume === 0 ? <FaVolumeMute size={18} /> : <FaVolumeUp size={18} />}
-                            </button>
-                            <input
-                                type="range"
-                                min={0}
-                                max={1}
-                                step={0.1}
-                                value={isMuted ? 0 : volume}
-                                onChange={handleVolumeChange}
-                                className="w-20 h-1 accent-red-600"
-                            />
-                        </div>
-                        <span className="text-white text-sm">
-                            {formatTime(currentTime)} / {formatTime(duration)}
-                        </span>
+            {/* Bottom Controls */}
+            <div className={`absolute bottom-0 inset-x-0 transition-opacity duration-300 z-20 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+                {/* Gradient */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent pointer-events-none" />
+
+                <div className="relative px-4 pb-4 pt-8">
+                    {/* Progress Bar */}
+                    <div
+                        ref={progressRef}
+                        className="relative h-1 group/progress cursor-pointer mb-4"
+                        onClick={handleSeek}
+                    >
+                        <div className="absolute inset-0 bg-white/30 rounded-full" />
+                        <div
+                            className="absolute inset-y-0 left-0 bg-white/50 rounded-full"
+                            style={{ width: `${bufferedPercent}%` }}
+                        />
+                        <div
+                            className="absolute inset-y-0 left-0 bg-red-600 rounded-full"
+                            style={{ width: `${progressPercent}%` }}
+                        />
+                        {/* Hover preview & scrubber */}
+                        <div
+                            className="absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-red-600 rounded-full shadow-lg transform scale-0 group-hover/progress:scale-100 transition-transform"
+                            style={{ left: `calc(${progressPercent}% - 8px)` }}
+                        />
                     </div>
 
-                    <div className="flex items-center gap-4">
-                        {/* Subtitles */}
-                        {subtitles.length > 0 && (
+                    {/* Controls Row */}
+                    <div className="flex items-center justify-between gap-2">
+                        {/* Left Controls */}
+                        <div className="flex items-center gap-1 sm:gap-2">
+                            <button
+                                onClick={togglePlay}
+                                className="p-2 sm:p-2.5 rounded-full hover:bg-white/10 text-white transition-colors"
+                            >
+                                {isPlaying ? <FaPause size={isMobile ? 18 : 20} /> : <FaPlay size={isMobile ? 18 : 20} />}
+                            </button>
+
+                            <button
+                                onClick={() => skip(-10)}
+                                className="p-2 sm:p-2.5 rounded-full hover:bg-white/10 text-white transition-colors hidden sm:block"
+                            >
+                                <FaBackward size={16} />
+                            </button>
+
+                            <button
+                                onClick={() => skip(10)}
+                                className="p-2 sm:p-2.5 rounded-full hover:bg-white/10 text-white transition-colors hidden sm:block"
+                            >
+                                <FaForward size={16} />
+                            </button>
+
+                            {/* Volume */}
+                            <div className="hidden sm:flex items-center gap-1 group/volume">
+                                <button
+                                    onClick={toggleMute}
+                                    className="p-2.5 rounded-full hover:bg-white/10 text-white transition-colors"
+                                >
+                                    {isMuted || volume === 0 ? <FaVolumeMute size={18} /> :
+                                        volume < 0.5 ? <FaVolumeDown size={18} /> : <FaVolumeUp size={18} />}
+                                </button>
+                                <div className="w-0 overflow-hidden group-hover/volume:w-20 transition-all duration-200">
+                                    <input
+                                        type="range"
+                                        min={0}
+                                        max={1}
+                                        step={0.05}
+                                        value={isMuted ? 0 : volume}
+                                        onChange={(e) => {
+                                            const video = videoRef.current;
+                                            if (!video) return;
+                                            const vol = parseFloat(e.target.value);
+                                            video.volume = vol;
+                                            video.muted = vol === 0;
+                                        }}
+                                        className="w-full h-1 accent-red-600 cursor-pointer"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Time */}
+                            <span className="text-white text-xs sm:text-sm font-medium ml-1 whitespace-nowrap">
+                                {formatTime(currentTime)} / {formatTime(duration)}
+                            </span>
+                        </div>
+
+                        {/* Right Controls */}
+                        <div className="flex items-center gap-1">
+                            {/* Subtitles Quick Toggle */}
+                            {subtitles.length > 0 && (
+                                <button
+                                    onClick={toggleSubtitles}
+                                    className={`p-2 sm:p-2.5 rounded-full hover:bg-white/10 transition-colors ${currentSubtitle >= 0 ? 'text-red-500' : 'text-white'}`}
+                                >
+                                    <FaClosedCaptioning size={isMobile ? 18 : 20} />
+                                </button>
+                            )}
+
+                            {/* Settings */}
                             <div className="relative">
                                 <button
-                                    onClick={() => setShowSubtitleMenu(!showSubtitleMenu)}
-                                    className={`text-white hover:text-gray-300 ${currentSubtitle >= 0 ? 'text-red-500' : ''}`}
+                                    onClick={() => setShowSettings(!showSettings)}
+                                    className="p-2 sm:p-2.5 rounded-full hover:bg-white/10 text-white transition-colors"
                                 >
-                                    <FaClosedCaptioning size={18} />
+                                    <FaCog size={isMobile ? 18 : 20} />
                                 </button>
-                                {showSubtitleMenu && (
-                                    <div className="absolute bottom-full right-0 mb-2 bg-gray-900 rounded p-2 min-w-32">
-                                        <button
-                                            onClick={() => selectSubtitle(-1)}
-                                            className={`block w-full text-left px-2 py-1 text-sm rounded ${currentSubtitle === -1 ? 'bg-red-600 text-white' : 'text-gray-300 hover:bg-gray-700'}`}
-                                        >
-                                            Off
-                                        </button>
-                                        {subtitles.map((sub, index) => (
-                                            <button
-                                                key={index}
-                                                onClick={() => selectSubtitle(index)}
-                                                className={`block w-full text-left px-2 py-1 text-sm rounded ${currentSubtitle === index ? 'bg-red-600 text-white' : 'text-gray-300 hover:bg-gray-700'}`}
-                                            >
-                                                {sub.label}
-                                            </button>
-                                        ))}
+
+                                {/* Settings Menu */}
+                                {showSettings && (
+                                    <div className="absolute bottom-full right-0 mb-2 bg-black/95 backdrop-blur-sm rounded-lg overflow-hidden shadow-xl min-w-[200px] border border-white/10">
+                                        {settingsTab === 'main' && (
+                                            <div className="py-1">
+                                                {hlsLevels.length > 1 && (
+                                                    <button
+                                                        onClick={() => setSettingsTab('quality')}
+                                                        className="w-full px-4 py-3 flex items-center justify-between hover:bg-white/10 text-white"
+                                                    >
+                                                        <span className="flex items-center gap-3">
+                                                            <FaCog size={14} />
+                                                            <span>Quality</span>
+                                                        </span>
+                                                        <span className="text-white/60 text-sm">{currentQualityLabel}</span>
+                                                    </button>
+                                                )}
+                                                <button
+                                                    onClick={() => setSettingsTab('speed')}
+                                                    className="w-full px-4 py-3 flex items-center justify-between hover:bg-white/10 text-white"
+                                                >
+                                                    <span className="flex items-center gap-3">
+                                                        <FaTachometerAlt size={14} />
+                                                        <span>Speed</span>
+                                                    </span>
+                                                    <span className="text-white/60 text-sm">{playbackSpeed}x</span>
+                                                </button>
+                                                {subtitles.length > 0 && (
+                                                    <button
+                                                        onClick={() => setSettingsTab('subtitles')}
+                                                        className="w-full px-4 py-3 flex items-center justify-between hover:bg-white/10 text-white"
+                                                    >
+                                                        <span className="flex items-center gap-3">
+                                                            <FaClosedCaptioning size={14} />
+                                                            <span>Subtitles</span>
+                                                        </span>
+                                                        <span className="text-white/60 text-sm">
+                                                            {currentSubtitle >= 0 ? subtitles[currentSubtitle]?.label : 'Off'}
+                                                        </span>
+                                                    </button>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {settingsTab === 'quality' && (
+                                            <div className="py-1">
+                                                <button
+                                                    onClick={() => setSettingsTab('main')}
+                                                    className="w-full px-4 py-2 flex items-center gap-2 text-white/60 hover:bg-white/10 border-b border-white/10"
+                                                >
+                                                    <FaArrowLeft size={12} />
+                                                    <span>Quality</span>
+                                                </button>
+                                                <button
+                                                    onClick={() => selectQuality(-1)}
+                                                    className={`w-full px-4 py-2.5 text-left hover:bg-white/10 ${currentQuality === -1 ? 'text-red-500' : 'text-white'}`}
+                                                >
+                                                    Auto
+                                                </button>
+                                                {hlsLevels.map(level => (
+                                                    <button
+                                                        key={level.index}
+                                                        onClick={() => selectQuality(level.index)}
+                                                        className={`w-full px-4 py-2.5 text-left hover:bg-white/10 ${currentQuality === level.index ? 'text-red-500' : 'text-white'}`}
+                                                    >
+                                                        {level.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+
+                                        {settingsTab === 'speed' && (
+                                            <div className="py-1">
+                                                <button
+                                                    onClick={() => setSettingsTab('main')}
+                                                    className="w-full px-4 py-2 flex items-center gap-2 text-white/60 hover:bg-white/10 border-b border-white/10"
+                                                >
+                                                    <FaArrowLeft size={12} />
+                                                    <span>Speed</span>
+                                                </button>
+                                                {speedOptions.map(speed => (
+                                                    <button
+                                                        key={speed}
+                                                        onClick={() => setSpeed(speed)}
+                                                        className={`w-full px-4 py-2.5 text-left hover:bg-white/10 ${playbackSpeed === speed ? 'text-red-500' : 'text-white'}`}
+                                                    >
+                                                        {speed === 1 ? 'Normal' : `${speed}x`}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+
+                                        {settingsTab === 'subtitles' && (
+                                            <div className="py-1">
+                                                <button
+                                                    onClick={() => setSettingsTab('main')}
+                                                    className="w-full px-4 py-2 flex items-center gap-2 text-white/60 hover:bg-white/10 border-b border-white/10"
+                                                >
+                                                    <FaArrowLeft size={12} />
+                                                    <span>Subtitles</span>
+                                                </button>
+                                                <button
+                                                    onClick={() => selectSubtitle(-1)}
+                                                    className={`w-full px-4 py-2.5 text-left hover:bg-white/10 ${currentSubtitle === -1 ? 'text-red-500' : 'text-white'}`}
+                                                >
+                                                    Off
+                                                </button>
+                                                {subtitles.map((sub, index) => (
+                                                    <button
+                                                        key={index}
+                                                        onClick={() => selectSubtitle(index)}
+                                                        className={`w-full px-4 py-2.5 text-left hover:bg-white/10 ${currentSubtitle === index ? 'text-red-500' : 'text-white'}`}
+                                                    >
+                                                        {sub.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                             </div>
-                        )}
 
-                        {/* Quality */}
-                        {hlsLevels.length > 1 && (
-                            <div className="relative">
-                                <button
-                                    onClick={() => setShowQualityMenu(!showQualityMenu)}
-                                    className="text-white hover:text-gray-300"
-                                >
-                                    <FaCog size={18} />
-                                </button>
-                                {showQualityMenu && (
-                                    <div className="absolute bottom-full right-0 mb-2 bg-gray-900 rounded p-2 min-w-32">
-                                        <button
-                                            onClick={() => selectQuality(-1)}
-                                            className={`block w-full text-left px-2 py-1 text-sm rounded ${currentQuality === -1 ? 'bg-red-600 text-white' : 'text-gray-300 hover:bg-gray-700'}`}
-                                        >
-                                            Auto
-                                        </button>
-                                        {hlsLevels.map(level => (
-                                            <button
-                                                key={level.index}
-                                                onClick={() => selectQuality(level.index)}
-                                                className={`block w-full text-left px-2 py-1 text-sm rounded ${currentQuality === level.index ? 'bg-red-600 text-white' : 'text-gray-300 hover:bg-gray-700'}`}
-                                            >
-                                                {level.label}
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        )}
+                            {/* PiP */}
+                            <button
+                                onClick={togglePiP}
+                                className="p-2 sm:p-2.5 rounded-full hover:bg-white/10 text-white transition-colors hidden sm:block"
+                            >
+                                <MdPictureInPictureAlt size={20} />
+                            </button>
 
-                        <button onClick={toggleFullscreen} className="text-white hover:text-gray-300">
-                            {isFullscreen ? <FaCompress size={18} /> : <FaExpand size={18} />}
-                        </button>
+                            {/* Fullscreen */}
+                            <button
+                                onClick={toggleFullscreen}
+                                className="p-2 sm:p-2.5 rounded-full hover:bg-white/10 text-white transition-colors"
+                            >
+                                {isFullscreen ?
+                                    <MdFullscreenExit size={isMobile ? 22 : 24} /> :
+                                    <MdFullscreen size={isMobile ? 22 : 24} />
+                                }
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
+
+            {/* Mobile Touch Areas (invisible) */}
+            {isMobile && (
+                <>
+                    <div className="absolute top-0 left-0 w-1/3 h-full" />
+                    <div className="absolute top-0 right-0 w-1/3 h-full" />
+                </>
+            )}
         </div>
     );
 };

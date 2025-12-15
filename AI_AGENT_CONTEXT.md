@@ -53,13 +53,21 @@ CMD ["xvfb-run", "--auto-servernum", "--server-args=-screen 0 1280x800x24", "nod
 ### Scraper Features
 - Uses `puppeteer-real-browser` with `turnstile: true` for Cloudflare bypass
 - Multi-server fallback (tries up to 4 servers)
-- 90s navigation timeout, 30s per-server timeout
+- **OPTIMIZED**: 90s navigation timeout, **15s per-server timeout** (was 30s)
+- **OPTIMIZED**: 100ms polling interval (was 200ms)
 - Browser launched lazily on first request (NOT on startup)
 - TV URL format: `https://mappletv.uk/watch/tv/{tmdbId}-{season}-{episode}?autoPlay=true`
 
+### Subtitle Extraction
+- Network response handler intercepts `.vtt`, `.srt`, `/subtitle`, `/caption` URLs
+- Parses JSON responses for subtitle objects (file, label, language)
+- Detects language from URL patterns (en, es, fr, de, etc.)
+- Falls back to M3U8 parsing if network capture misses subtitles
+- Returns combined subtitles array in extraction response
+
 ---
 
-## 🎥 Frontend: HLS Player
+## 🎥 Frontend: HLS Player (Modern Design)
 
 ### Configuration (`src/components/common/HLSPlayer.tsx`)
 - **OPTIMIZED for Fast Playback**:
@@ -71,14 +79,35 @@ CMD ["xvfb-run", "--auto-servernum", "--server-args=-screen 0 1280x800x24", "nod
   - HLS.js `startLoad(position)` for faster seeks
   - Proper seek event handling
   - 15s back-buffer for quick rewinds
-- **Features**:
+
+### Modern Player Features
+- **Desktop Controls**:
   - Quality selector (Auto + manual levels)
-  - Subtitle support with track loading
-  - Skip forward/backward buttons (10s)
-  - Keyboard shortcuts (Space/K, arrows, M, F)
-- **Error Recovery**:
-  - 4 retries with 1s delay
-  - Media error auto-recovery
+  - Subtitle selector with toggle button
+  - Playback speed control (0.25x - 2x)
+  - Volume slider with hover expand
+  - Picture-in-Picture support
+  - Progress bar with buffered indicator + scrubber
+- **Mobile Controls**:
+  - Double-tap to seek (left -10s, right +10s, center play/pause)
+  - Touch to show/hide controls
+  - Responsive button sizing
+  - Landscape/Portrait optimized
+- **Keyboard Shortcuts**:
+  - Space/K: Play/Pause
+  - J/Left Arrow: -10s
+  - L/Right Arrow: +10s
+  - Up/Down: Volume
+  - M: Mute
+  - F: Fullscreen
+  - C: Toggle subtitles
+  - 0-9: Jump to % of video
+- **Subtitle Styling**:
+  - Netflix-style appearance
+  - Semi-transparent black background
+  - White text with shadow
+  - Responsive font size (3.5vw mobile, 1.8vw desktop)
+  - Positioned above controls
 
 ### Proxy Bypass Optimization (`src/services/mappletv.ts`)
 MappletTV returns URLs from CORS-enabled domains (heistotron.uk). The frontend **skips double-proxying** for these:
@@ -175,18 +204,32 @@ node scraper.js
 4. **Health check**: `https://abhishek1996-fluxnest.hf.space/health`
 
 **Current State** (December 2025):
-- Extraction: Working
+- Extraction: OPTIMIZED - 15s server timeout, 100ms polling
 - Playback: OPTIMIZED - Fast start, smooth seeking
-- Subtitles: Working - Extracted and displayed
+- Subtitles: Network interception + M3U8 parsing
+- Player UI: MODERN - Netflix-style with mobile support
 - Quality: ABR mode with manual selector
-- Keyboard shortcuts: Space, arrows, M, F
+- Speed: 0.25x - 2x playback speed control
+- Mobile: Double-tap seeking, touch controls, responsive
+- Keyboard: Full shortcut support (Space, J/K/L, arrows, M, F, C, 0-9)
 
-**Key HLS.js Settings** (for reference):
+**Key Settings** (for reference):
 ```javascript
+// HLS.js
 {
   maxBufferLength: 15,        // Fast start
   maxMaxBufferLength: 30,     // Prevents over-buffering
   fragLoadingTimeOut: 20000,  // Quick recovery
   abrEwmaDefaultEstimate: 1000000  // 1Mbps start estimate
 }
+
+// Backend
+{
+  SERVER_TIMEOUT: 15000,      // 15s per server (was 30s)
+  POLL_INTERVAL: 100,         // 100ms polling (was 200ms)
+  MAX_SERVERS: 4              // Try up to 4 servers
+}
 ```
+
+**To Deploy Backend Changes:**
+Upload `backend/scraper.js` to Hugging Face Spaces

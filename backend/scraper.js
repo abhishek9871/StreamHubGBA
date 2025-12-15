@@ -450,11 +450,44 @@ app.get('/api/mappletv/extract', async (req, res) => {
     let foundMedia = null;
     let capturedReferer = null;
     const m3u8Urls = [];
+    const capturedSubtitles = [];
 
-    // Network Response Handler
+    // Network Response Handler - captures M3U8 AND Subtitles
     const responseHandler = async (response) => {
         const url = response.url();
         const contentType = response.headers()['content-type'] || '';
+        const urlLower = url.toLowerCase();
+
+        // Capture Subtitle URLs (.vtt, .srt, subtitle in path)
+        if (urlLower.includes('.vtt') || urlLower.includes('.srt') ||
+            urlLower.includes('/subtitle') || urlLower.includes('/caption') ||
+            urlLower.includes('sub.') || contentType.includes('text/vtt')) {
+            console.log(`[Target] 📝 Found Subtitle: ${url.substring(0, 80)}...`);
+            // Extract language from URL if possible
+            const langMatch = url.match(/[._-](en|eng|english|es|spa|spanish|fr|fra|french|de|ger|german|it|ita|italian|pt|por|portuguese|ru|rus|russian|ja|jpn|japanese|ko|kor|korean|zh|chi|chinese|ar|ara|arabic|hi|hin|hindi)[._-]/i);
+            const lang = langMatch ? langMatch[1].toLowerCase() : 'en';
+            const langLabels = {
+                'en': 'English', 'eng': 'English', 'english': 'English',
+                'es': 'Spanish', 'spa': 'Spanish', 'spanish': 'Spanish',
+                'fr': 'French', 'fra': 'French', 'french': 'French',
+                'de': 'German', 'ger': 'German', 'german': 'German',
+                'it': 'Italian', 'ita': 'Italian', 'italian': 'Italian',
+                'pt': 'Portuguese', 'por': 'Portuguese', 'portuguese': 'Portuguese',
+                'ru': 'Russian', 'rus': 'Russian', 'russian': 'Russian',
+                'ja': 'Japanese', 'jpn': 'Japanese', 'japanese': 'Japanese',
+                'ko': 'Korean', 'kor': 'Korean', 'korean': 'Korean',
+                'zh': 'Chinese', 'chi': 'Chinese', 'chinese': 'Chinese',
+                'ar': 'Arabic', 'ara': 'Arabic', 'arabic': 'Arabic',
+                'hi': 'Hindi', 'hin': 'Hindi', 'hindi': 'Hindi'
+            };
+            if (!capturedSubtitles.find(s => s.file === url)) {
+                capturedSubtitles.push({
+                    label: langLabels[lang] || 'English',
+                    language: lang.substring(0, 2),
+                    file: url
+                });
+            }
+        }
 
         // Capture M3U8 URLs
         if ((url.includes('.m3u8') || contentType.includes('mpegurl')) && !url.includes('sk-')) {
@@ -471,13 +504,15 @@ app.get('/api/mappletv/extract', async (req, res) => {
             }
         }
 
-        // Also check JSON/text responses for embedded M3U8 URLs
+        // Check JSON responses for embedded URLs (M3U8 and Subtitles)
         if (contentType.includes('json') || contentType.includes('text/html')) {
             try {
                 const text = await response.text();
-                const matches = text.match(/https?:\/\/[^\s"'<>\\]+\.m3u8[^\s"'<>\\]*/gi);
-                if (matches) {
-                    matches.forEach(m => {
+
+                // Find M3U8 URLs
+                const m3u8Matches = text.match(/https?:\/\/[^\s"'<>\\]+\.m3u8[^\s"'<>\\]*/gi);
+                if (m3u8Matches) {
+                    m3u8Matches.forEach(m => {
                         if (!m3u8Urls.includes(m)) {
                             console.log(`[Target] 🎯 Found M3U8 in response: ${m.substring(0, 60)}...`);
                             m3u8Urls.push(m);
@@ -485,6 +520,76 @@ app.get('/api/mappletv/extract', async (req, res) => {
                         }
                     });
                 }
+
+                // Find Subtitle URLs in JSON
+                const subMatches = text.match(/https?:\/\/[^\s"'<>\\]+\.(vtt|srt)[^\s"'<>\\]*/gi);
+                if (subMatches) {
+                    subMatches.forEach(subUrl => {
+                        if (!capturedSubtitles.find(s => s.file === subUrl)) {
+                            console.log(`[Target] 📝 Found Subtitle in JSON: ${subUrl.substring(0, 60)}...`);
+                            capturedSubtitles.push({
+                                label: 'English',
+                                language: 'en',
+                                file: subUrl
+                            });
+                        }
+                    });
+                }
+
+                // Parse subtitle objects from JSON (common format: {file: "url", label: "English"})
+                try {
+                    const json = JSON.parse(text);
+                    const findSubtitles = (obj) => {
+                        if (!obj || typeof obj !== 'object') return;
+                        if (Array.isArray(obj)) {
+                            obj.forEach(item => findSubtitles(item));
+                        } else {
+                            // Check if this object looks like a subtitle entry
+                            if (obj.file && (obj.file.includes('.vtt') || obj.file.includes('.srt'))) {
+                                if (!capturedSubtitles.find(s => s.file === obj.file)) {
+                                    console.log(`[Target] 📝 Found Subtitle object: ${obj.label || 'Unknown'}`);
+                                    capturedSubtitles.push({
+                                        label: obj.label || obj.name || 'English',
+                                        language: obj.language || obj.lang || 'en',
+                                        file: obj.file || obj.url
+                                    });
+                                }
+                            }
+                            // Check for subtitles/tracks array
+                            if (obj.subtitles && Array.isArray(obj.subtitles)) {
+                                obj.subtitles.forEach(sub => {
+                                    if (sub.file || sub.url) {
+                                        if (!capturedSubtitles.find(s => s.file === (sub.file || sub.url))) {
+                                            capturedSubtitles.push({
+                                                label: sub.label || sub.name || 'English',
+                                                language: sub.language || sub.lang || 'en',
+                                                file: sub.file || sub.url
+                                            });
+                                        }
+                                    }
+                                });
+                            }
+                            if (obj.tracks && Array.isArray(obj.tracks)) {
+                                obj.tracks.forEach(track => {
+                                    if (track.kind === 'captions' || track.kind === 'subtitles') {
+                                        if (track.file || track.src) {
+                                            if (!capturedSubtitles.find(s => s.file === (track.file || track.src))) {
+                                                capturedSubtitles.push({
+                                                    label: track.label || 'English',
+                                                    language: track.srclang || 'en',
+                                                    file: track.file || track.src
+                                                });
+                                            }
+                                        }
+                                    }
+                                });
+                            }
+                            // Recurse into nested objects
+                            Object.values(obj).forEach(val => findSubtitles(val));
+                        }
+                    };
+                    findSubtitles(json);
+                } catch (e) { /* Not valid JSON */ }
             } catch (e) { }
         }
     };
@@ -517,16 +622,16 @@ app.get('/api/mappletv/extract', async (req, res) => {
         }
 
         // OPTIMIZATION: Minimal wait, just enough for JS to initialize
-        await new Promise(r => setTimeout(r, 300));
+        await new Promise(r => setTimeout(r, 100));
 
         // Click play button immediately
         console.log('[Extract] 🎬 Clicking play...');
         await tryClickPlay(page);
 
-        // Multi-server approach: Try primary server first, then fallback servers
-        const MAX_SERVERS = 4;  // Try up to 4 servers
-        const SERVER_TIMEOUT = 30000;  // 30 seconds per server (increased for slow sites)
-        const POLL_INTERVAL = 200;
+        // OPTIMIZED: Faster polling and shorter timeouts for quicker extraction
+        const MAX_SERVERS = 4;      // Try up to 4 servers
+        const SERVER_TIMEOUT = 15000;  // 15 seconds per server (was 30s)
+        const POLL_INTERVAL = 100;     // 100ms polling (was 200ms)
 
         for (let serverNum = 1; serverNum <= MAX_SERVERS; serverNum++) {
             console.log(`[Extract] 📡 Trying server ${serverNum}/${MAX_SERVERS}...`);
@@ -540,10 +645,30 @@ app.get('/api/mappletv/extract', async (req, res) => {
 
                     page.off('response', responseHandler);
 
-                    // Fetch subtitles from the M3U8 content
                     const effectiveReferer = capturedReferer || 'https://mapple.uk/';
-                    console.log('[Extract] 📝 Fetching subtitles...');
-                    const subtitles = await fetchSubtitles(foundMedia, effectiveReferer);
+
+                    // Combine subtitles from network captures AND M3U8 parsing
+                    let allSubtitles = [...capturedSubtitles];
+
+                    // Also try to fetch from M3U8 (but don't wait too long)
+                    try {
+                        const m3u8Subs = await Promise.race([
+                            fetchSubtitles(foundMedia, effectiveReferer),
+                            new Promise(resolve => setTimeout(() => resolve([]), 3000)) // 3s timeout
+                        ]);
+                        if (m3u8Subs && m3u8Subs.length > 0) {
+                            // Add M3U8 subs that aren't already captured
+                            m3u8Subs.forEach(sub => {
+                                if (!allSubtitles.find(s => s.file === sub.file)) {
+                                    allSubtitles.push(sub);
+                                }
+                            });
+                        }
+                    } catch (e) {
+                        console.log('[Extract] ⚠️ Could not fetch M3U8 subtitles:', e.message);
+                    }
+
+                    console.log(`[Extract] 📝 Total subtitles found: ${allSubtitles.length}`);
 
                     return res.json({
                         success: true,
@@ -552,12 +677,12 @@ app.get('/api/mappletv/extract', async (req, res) => {
                         provider: 'mappletv',
                         server: serverNum,
                         extractionTime: totalTime,
-                        subtitles: subtitles
+                        subtitles: allSubtitles
                     });
                 }
 
-                // Click play every 5 seconds
-                if (elapsed > 0 && elapsed % 5000 === 0) {
+                // Click play every 3 seconds (was 5s)
+                if (elapsed > 0 && elapsed % 3000 === 0) {
                     console.log(`[Extract] 💓 Server ${serverNum}: ${(elapsed / 1000).toFixed(0)}s...`);
                     await tryClickPlay(page);
                 }
@@ -572,9 +697,8 @@ app.get('/api/mappletv/extract', async (req, res) => {
                 const switched = await trySwitchServer(page, serverNum + 1);
                 if (!switched) {
                     console.log('[Extract] ⚠️ Could not find switch server button, trying fallback clicks...');
-                    // Try clicking in the area where server buttons might be
                     await page.mouse.click(640, 550);
-                    await new Promise(r => setTimeout(r, 1500));
+                    await new Promise(r => setTimeout(r, 1000)); // Reduced from 1500ms
                 }
                 await tryClickPlay(page);
             }
