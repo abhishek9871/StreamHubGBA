@@ -1,7 +1,7 @@
 {
   "name": "flixnest-scraper",
   "version": "2.1.0",
-  "description": "Multi-Source Puppeteer Real Browser Scraper",
+  "description": "MappletTV Puppeteer Real Browser Scraper",
   "main": "scraper.js",
   "type": "module",
   "scripts": {

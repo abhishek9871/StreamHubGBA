@@ -26,4 +26,4 @@ RUN npm install
 COPY --chown=1000 . .
 
 # Launch with xvfb-run to support headless: false
-CMD ["xvfb-run", "--auto-servernum", "--server-args=-screen 0 1280x800x24", "node", "mappletv-scraper.js"]
+CMD ["xvfb-run", "--auto-servernum", "--server-args='-screen 0 1280x800x24'", "node", "scraper.js"]

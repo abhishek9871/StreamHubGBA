@@ -618,8 +618,10 @@ app.get('/api/proxy/m3u8', async (req, res) => {
         let nextLineIsPlaylist = false;
 
         // Build dynamic proxy base URL from request (once, outside loop)
-        const protocol = req.protocol || 'http';
+        // IMPORTANT: Force HTTPS on Hugging Face (reverse proxy reports http but external access is https)
         const host = req.get('host') || 'localhost:7860';
+        const isHuggingFace = host.includes('hf.space');
+        const protocol = isHuggingFace ? 'https' : (req.protocol || 'http');
         const proxyBase = `${protocol}://${host}/api/proxy/`;
 
         for (let i = 0; i < lines.length; i++) {
